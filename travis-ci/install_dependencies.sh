@@ -39,6 +39,8 @@ fold_end
 
 if [ $(lc "${OS_NAME}") = "linux" ]; then
 
+	pip3 install --user meson
+
 	if [ $QT = "qtWin" ]; then
 		export MXEDIR="/usr/lib/mxe"
 		export MXEINFIX="x86-64-w64-mingw32.shared"
@@ -177,8 +179,8 @@ elif [ "${OS_NAME}" = "Darwin" ]; then
 	fold_end
 
 	fold_start "brew_install"
-	print_info "Brewing packages: qt5"
-	brew install qt5
+	print_info "Brewing packages: qt5 meson"
+	brew install qt5 meson
 	fold_end
 
 else

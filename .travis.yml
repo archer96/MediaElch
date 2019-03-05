@@ -31,7 +31,8 @@ before_script:
 
 script:
 - if [ $QT = qtWin ]; then PATH=$PATH:/usr/lib/mxe/usr/bin; fi
-- cd build && make -j 2
+- cd build
+- if [ "${QT}" = "qtWin" ]; then make; else ninja; fi
 
 after_success:
 - "${TRAVIS_BUILD_DIR}/travis-ci/package.sh"

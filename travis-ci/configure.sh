@@ -13,13 +13,15 @@ if [ -f "${SCRIPT_DIR}/defs.sh" ]; then
 fi
 
 pushd "${PROJECT_DIR}" > /dev/null
-mkdir build && cd build
+mkdir build
 
 print_important "Configuring for building for ${QT} on ${OS_NAME}"
 
 if [ $(lc "${OS_NAME}") = "linux" ]; then
 
 	if [ "${QT}" = "qtWin" ]; then
+		cd build
+
 		PATH="$PATH:${MXEDIR}/usr/bin"
 		$MXEDIR/usr/bin/${MXETARGET}-qmake-qt5 --version
 		$MXEDIR/usr/bin/${MXETARGET}-qmake-qt5 ../MediaElch.pro \
@@ -28,14 +30,16 @@ if [ $(lc "${OS_NAME}") = "linux" ]; then
 
 	else
 		PATH="/opt/${QT}/bin:$PATH"
-		qmake --version
-		qmake ../MediaElch.pro CONFIG+=release PREFIX=/usr
+		meson --version
+		meson build --buildtype=release
+		cd build
 	fi
 
 elif [ "${OS_NAME}" = "Darwin" ]; then
 	PATH="/usr/local/opt/qt/bin:$PATH"
-	qmake --version
-	qmake ../MediaElch.pro CONFIG+=release
+	meson --version
+	meson setup --buildtype=release build
+	cd build
 
 else
 	print_error "Unknown operating system: ${OS_NAME}"
