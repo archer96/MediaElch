@@ -43,7 +43,7 @@ TEST_CASE("IMDb returns valid search results", "[IMDb][search]")
     }
 }
 
-TEST_CASE("IMDb scrapes correct movie details", "[scraper][IMDb][load_data]")
+TEST_CASE("IMDb scrapes correct movie details", "[IMDb][load_data]")
 {
     IMDB imdb;
     MockScraperSettings settings(imdb.meta().identifier);
@@ -75,7 +75,9 @@ TEST_CASE("IMDb scrapes correct movie details", "[scraper][IMDb][load_data]")
         CHECK_THAT(m.overview(), StartsWith("Dory is a wide-eyed, blue tang fish"));
         CHECK_THAT(m.outline(), StartsWith("Friendly but forgetful blue tang Dory"));
         CHECK_THAT(m.director(), Contains("Andrew Stanton"));
+        CHECK_THAT(m.director(), Contains("Angus MacLane"));
         CHECK_THAT(m.writer(), Contains("Andrew Stanton"));
+        CHECK_THAT(m.writer(), Contains("Victoria Strouse"));
 
         const auto genres = m.genres();
         REQUIRE(genres.size() >= 2);
@@ -257,5 +259,15 @@ TEST_CASE("IMDb scrapes correct movie details", "[scraper][IMDb][load_data]")
         loadImdbSync(imdb, {{nullptr, "tt2277860"}}, m);
         REQUIRE(m.imdbId() == ImdbId("tt2277860"));
         REQUIRE(m.actors().size() == 15);
+    }
+
+    SECTION("Godfather's Rating is loaded") {
+        Movie m(QStringList{}); // Movie without files
+
+        // The 2020-12 remake of IMDb's site has different rating layouts.
+        // Godfather is once example.
+        loadImdbSync(imdb, {{nullptr, "tt0068646"}}, m);
+        CHECK(m.imdbId() == ImdbId("tt0068646"));
+        CHECK(m.ratings().back().rating == Approx(9.2).margin(0.5));
     }
 }

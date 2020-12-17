@@ -9,6 +9,19 @@
 namespace mediaelch {
 namespace scraper {
 
+static void addCookies(QNetworkRequest& req)
+{
+    req.setRawHeader("cookie",
+        "uu=BCYoKDZTqlbP6LxXdb8byAXll6vT_rksbeqnjiGKjwYQc17C02Aepg2Dx-NGRnjq0BG2F90aRrLa%0D%0A1IkRn_"
+        "IDkDuPWx9NkI81wSYgiHtJzn5g3SwoXA9H_3dbIksJk8zMWEZS5jTlqwSmGZoAnXBIVdb1%0D%0A0g%0D%0A; "
+        "session-id=135-2757071-9511118; ubid-main=135-0996010-2768324; adblk=adblk_no; session-id-time=2082787201l; "
+        "beta-control=tmd=in; "
+        "session-token=0bDotU93z0p2qxRkPcT/GkMan9kNVMqr1bp6lG/KkvIx8lfHc0qbmfXtNIAwfZr+65v2jzk/"
+        "8nXUUshZgPteWYgN6kYJojcOi1AcYyWHtzfOoXzZKzlZyK/RjnTYGGbTwHFMwfpDIC9KJH/"
+        "NEbvwSdxmfAgZNN0GhkNKi8hjHau8j8ypZxK2D8T6zO/JTrYM; "
+        "csm-hit=tb:s-B5XVTKFR6ABYR83ZBHGZ|1608718190904&t:1608718191816&adb:adblk_no");
+}
+
 void ImdbMovieLoader::load()
 {
     m_movie.clear(m_infos);
@@ -16,7 +29,8 @@ void ImdbMovieLoader::load()
 
     QUrl url = QUrl(QString("https://www.imdb.com/title/%1/").arg(m_imdbId).toUtf8());
     QNetworkRequest request = mediaelch::network::requestWithDefaults(url);
-    request.setRawHeader("Accept-Language", "en");
+    request.setRawHeader("Accept-Language", "en-US,en;q=0.9");
+    addCookies(request);
     QNetworkReply* reply = m_network.getWithWatcher(request);
     connect(reply, &QNetworkReply::finished, this, &ImdbMovieLoader::onLoadFinished);
 }
@@ -85,6 +99,8 @@ void ImdbMovieLoader::loadPoster(const QUrl& posterViewerUrl)
 {
     qDebug() << "[ImdbMovieLoader] Loading movie poster detail view";
     auto request = mediaelch::network::requestWithDefaults(posterViewerUrl);
+    addCookies(request);
+
     QNetworkReply* posterReply = m_network.getWithWatcher(request);
     connect(posterReply, &QNetworkReply::finished, this, &ImdbMovieLoader::onPosterLoadFinished);
 }
@@ -93,6 +109,8 @@ void ImdbMovieLoader::loadTags()
 {
     QUrl tagsUrl(QStringLiteral("https://www.imdb.com/title/%1/keywords").arg(m_movie.imdbId().toString()));
     auto request = mediaelch::network::requestWithDefaults(tagsUrl);
+    addCookies(request);
+
     QNetworkReply* tagsReply = m_network.getWithWatcher(request);
     connect(tagsReply, &QNetworkReply::finished, this, &ImdbMovieLoader::onTagsFinished);
 }
@@ -101,9 +119,11 @@ void ImdbMovieLoader::loadActorImageUrls()
 {
     for (int index = 0; index < m_actorUrls.size(); ++index) {
         auto request = mediaelch::network::requestWithDefaults(m_actorUrls[index].second);
+        addCookies(request);
+
         // The actor's image should be the same for all languages. So we can
         // just load the English version of the page.
-        request.setRawHeader("Accept-Language", "en");
+        request.setRawHeader("Accept-Language", "en-US,en;q=0.9");
         QNetworkReply* reply = m_network.getWithWatcher(request);
         reply->setProperty("actorIndex", QVariant(index));
         connect(reply, &QNetworkReply::finished, this, &ImdbMovieLoader::onActorImageUrlLoadDone);

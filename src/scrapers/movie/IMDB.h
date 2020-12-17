@@ -53,6 +53,11 @@ private:
     mediaelch::network::NetworkManager m_network;
 
     QVector<ScraperSearchResult> parseSearch(const QString& html);
+
+    void extractReleased(Movie* movie, const QString& html) const;
+    void extractDirectors(Movie* movie, const QString& html) const;
+    void extractWriters(Movie* movie, const QString& html) const;
+    void extractCertification(Movie* movie, const QString& html) const;
 };
 
 } // namespace scraper
