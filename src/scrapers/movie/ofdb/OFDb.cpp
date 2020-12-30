@@ -106,61 +106,14 @@ void OFDb::loadData(QHash<MovieScraper*, mediaelch::scraper::MovieIdentifier> id
     Movie* movie,
     QSet<MovieScraperInfo> infos)
 {
-    movie->clear(infos);
+    m_api.loadMovie(ids.values().first().str(), [this, movie, infos](QString html, ScraperError error) {
+        if (!error.hasError()) {
+            movie->clear(infos);
+            parseAndAssignInfos(html, movie, infos);
+        }
 
-    QUrl url(QStringLiteral("https://ofdbgw.geeksphere.de/movie/%1").arg(ids.values().first().str()));
-    auto request = mediaelch::network::requestWithDefaults(url);
-    QNetworkReply* reply = network()->getWithWatcher(request);
-    reply->setProperty("storage", Storage::toVariant(reply, movie));
-    reply->setProperty("ofdbId", ids.values().first().str());
-    reply->setProperty("notFoundCounter", 0);
-    reply->setProperty("infosToLoad", Storage::toVariant(reply, infos));
-    connect(reply, &QNetworkReply::finished, this, &OFDb::loadFinished);
-}
-
-/**
- * \brief Called when the movie infos are downloaded
- * \see OFDb::parseAndAssignInfos
- */
-void OFDb::loadFinished()
-{
-    auto* reply = dynamic_cast<QNetworkReply*>(QObject::sender());
-    Movie* movie = reply->property("storage").value<Storage*>()->movie();
-    QString ofdbId = reply->property("ofdbId").toString();
-    QSet<MovieScraperInfo> infos = reply->property("infosToLoad").value<Storage*>()->movieInfosToLoad();
-    int notFoundCounter = reply->property("notFoundCounter").toInt();
-
-    auto dls = makeDeleteLaterScope(reply);
-
-    if (movie == nullptr) {
-        return;
-    }
-
-    if (reply->error() == QNetworkReply::ContentNotFoundError && notFoundCounter < 3) {
-        qWarning() << "Got 404";
-        notFoundCounter++;
-        reply->deleteLater();
-        QUrl url(QString("http://ofdbgw.metawave.ch/movie/%1").arg(ofdbId));
-        auto request = mediaelch::network::requestWithDefaults(url);
-        reply = network()->get(request);
-        reply->setProperty("storage", Storage::toVariant(reply, movie));
-        reply->setProperty("ofdbId", ofdbId);
-        reply->setProperty("notFoundCounter", notFoundCounter);
-        reply->setProperty("infosToLoad", Storage::toVariant(reply, infos));
-        connect(reply, &QNetworkReply::finished, this, &OFDb::loadFinished);
-        return;
-    }
-
-    ScraperError error;
-
-    if (reply->error() == QNetworkReply::NoError) {
-        QString msg = QString::fromUtf8(reply->readAll());
-        parseAndAssignInfos(msg, movie, infos);
-    } else {
-        error = mediaelch::replyToScraperError(*reply);
-    }
-
-    movie->controller()->scraperLoadDone(this, error);
+        movie->controller()->scraperLoadDone(this, error);
+    });
 }
 
 /**
