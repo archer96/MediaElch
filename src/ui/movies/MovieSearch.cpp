@@ -41,12 +41,11 @@ int MovieSearch::execWithSearch(QString searchString, ImdbId id, TmdbId tmdbId)
     return exec();
 }
 
-/*** GETTER ***/
+const mediaelch::Locale& MovieSearch::scraperLocale() const
+{
+    return ui->movieSearchWidget->scraperLocale();
+}
 
-/**
- * \brief MovieSearch::scraperId
- * \return Current scraper Id
- */
 QString MovieSearch::scraperId()
 {
     return ui->movieSearchWidget->scraperId();

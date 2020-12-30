@@ -58,16 +58,12 @@ MovieMultiScrapeDialog::MovieMultiScrapeDialog(QWidget* parent) : QDialog(parent
             connect(box, &QAbstractButton::clicked, this, &MovieMultiScrapeDialog::onChkToggled);
         }
     }
-    for (const auto* scraper : Manager::instance()->scrapers().movieScrapers()) {
-        ui->comboScraper->addItem(scraper->meta().name, scraper->meta().identifier);
-    }
 
+    auto indexChanged = elchOverload<int>(&QComboBox::currentIndexChanged);
     connect(ui->chkUnCheckAll, &QAbstractButton::clicked, this, &MovieMultiScrapeDialog::onChkAllToggled);
     connect(ui->btnStartScraping, &QAbstractButton::clicked, this, &MovieMultiScrapeDialog::onStartScraping);
-    connect(ui->comboScraper,
-        elchOverload<int>(&QComboBox::currentIndexChanged),
-        this,
-        &MovieMultiScrapeDialog::setCheckBoxesEnabled);
+    connect(ui->comboScraper, indexChanged, this, &MovieMultiScrapeDialog::setCheckBoxesEnabled);
+    connect(ui->comboLanguage, &LanguageCombo::languageChanged, this, &MovieMultiScrapeDialog::onLanguageChanged);
 }
 
 MovieMultiScrapeDialog::~MovieMultiScrapeDialog()
@@ -92,6 +88,10 @@ int MovieMultiScrapeDialog::exec()
     ui->movie->clear();
     m_currentMovie = nullptr;
     m_executed = true;
+
+    setupScraperDropdown();
+    setupLanguageDropdown();
+
     setCheckBoxesEnabled(ui->comboScraper->currentIndex());
     adjustSize();
 
@@ -127,6 +127,45 @@ void MovieMultiScrapeDialog::setMovies(QVector<Movie*> movies)
     m_movies = movies;
 }
 
+void MovieMultiScrapeDialog::setupLanguageDropdown()
+{
+    if (m_currentScraper == nullptr) {
+        ui->comboLanguage->setInvalid();
+        qCritical() << "[MovieScrapeDialog] Cannot set language dropdown in MovieMultiScrapeDialog";
+        showError(tr("Internal inconsistency: Cannot set language dropdown in movie search widget!"));
+        return;
+    }
+
+    const auto& meta = m_currentScraper->meta();
+    m_locale = Settings::instance()->scraperSettings(meta.identifier)->language(meta.defaultLocale);
+    ui->comboLanguage->setupLanguages(meta.supportedLanguages, m_locale);
+}
+
+void MovieMultiScrapeDialog::setupScraperDropdown()
+{
+    ui->comboScraper->blockSignals(true);
+    ui->comboScraper->clear();
+
+    for (const mediaelch::scraper::MovieScraper* scraper : Manager::instance()->scrapers().movieScrapers()) {
+        ui->comboScraper->addItem(scraper->meta().name, scraper->meta().identifier);
+    }
+
+    // Get the last selected scraper.
+    const QString& currentScraperId = Settings::instance()->currentTvShowScraper();
+    mediaelch::scraper::MovieScraper* currentScraper = Manager::instance()->scrapers().movieScraper(currentScraperId);
+
+    // The ID may not be a valid scraper. Default to first available scraper.
+    if (currentScraper != nullptr) {
+        m_currentScraper = currentScraper;
+    } else {
+        m_currentScraper = Manager::instance()->scrapers().movieScrapers().first();
+    }
+
+    const int index = ui->comboScraper->findData(m_currentScraper->meta().identifier);
+    ui->comboScraper->setCurrentIndex(index);
+    ui->comboScraper->blockSignals(false);
+}
+
 void MovieMultiScrapeDialog::onStartScraping()
 {
     using namespace mediaelch::scraper;
@@ -137,15 +176,15 @@ void MovieMultiScrapeDialog::onStartScraping()
     ui->chkAutoSave->setEnabled(false);
     ui->chkOnlyImdb->setEnabled(false);
 
-    m_scraperInterface = Manager::instance()->scrapers().movieScraper(
+    m_currentScraper = Manager::instance()->scrapers().movieScraper(
         ui->comboScraper->itemData(ui->comboScraper->currentIndex()).toString());
 
-    if (m_scraperInterface == nullptr) {
+    if (m_currentScraper == nullptr) {
         return;
     }
 
-    m_isTmdb = m_scraperInterface->meta().identifier == TmdbMovie::ID;
-    m_isImdb = m_scraperInterface->meta().identifier == ImdbMovie::ID;
+    m_isTmdb = m_currentScraper->meta().identifier == TmdbMovie::ID;
+    m_isImdb = m_currentScraper->meta().identifier == ImdbMovie::ID;
 
     m_queue.append(m_movies.toList());
 
@@ -204,7 +243,7 @@ void MovieMultiScrapeDialog::scrapeNext()
         && ((!m_currentMovie->imdbId().isValid() && m_isImdb)
             || (!m_currentMovie->tmdbId().isValid() && !m_currentMovie->imdbId().isValid() && m_isTmdb)
             || (!m_currentMovie->imdbId().isValid() && !m_currentMovie->tmdbId().isValid()
-                && m_scraperInterface->meta().identifier == CustomMovieScraper::ID))) {
+                && m_currentScraper->meta().identifier == CustomMovieScraper::ID))) {
         scrapeNext();
         return;
     }
@@ -240,7 +279,7 @@ void MovieMultiScrapeDialog::scrapeNext()
     config.query = m_currentMovie->name();
 
     const QString& customTitleScraperID = CustomMovieScraper::instance()->titleScraper()->meta().identifier;
-    if (m_scraperInterface->meta().identifier == CustomMovieScraper::ID) {
+    if (m_currentScraper->meta().identifier == CustomMovieScraper::ID) {
         if ((customTitleScraperID == ImdbMovie::ID || customTitleScraperID == TmdbMovie::ID)
             && m_currentMovie->imdbId().isValid()) {
             config.query = m_currentMovie->imdbId().toString();
@@ -250,25 +289,21 @@ void MovieMultiScrapeDialog::scrapeNext()
         }
     }
 
-    auto* searchJob = m_scraperInterface->search(config);
+    auto* searchJob = m_currentScraper->search(config);
     connect(searchJob, &MovieSearchJob::sigFinished, this, &MovieMultiScrapeDialog::onSearchFinished);
     searchJob->execute();
 }
 
 void MovieMultiScrapeDialog::loadMovieData(Movie* movie, ImdbId id)
 {
-    using namespace mediaelch::scraper;
-    QHash<MovieScraper*, MovieIdentifier> ids;
-    ids.insert(nullptr, MovieIdentifier(id.toString()));
-    movie->controller()->loadData(ids, m_scraperInterface, m_infosToLoad);
+    movie->controller()->loadData(
+        m_currentScraper, mediaelch::scraper::MovieIdentifier(id.toString()), m_locale, m_infosToLoad);
 }
 
 void MovieMultiScrapeDialog::loadMovieData(Movie* movie, TmdbId id)
 {
-    using namespace mediaelch::scraper;
-    QHash<MovieScraper*, MovieIdentifier> ids;
-    ids.insert(nullptr, MovieIdentifier(id.toString()));
-    movie->controller()->loadData(ids, m_scraperInterface, m_infosToLoad);
+    movie->controller()->loadData(
+        m_currentScraper, mediaelch::scraper::MovieIdentifier(id.toString()), m_locale, m_infosToLoad);
 }
 
 void MovieMultiScrapeDialog::onSearchFinished(mediaelch::scraper::MovieSearchJob* searchJob)
@@ -290,7 +325,11 @@ void MovieMultiScrapeDialog::onSearchFinished(mediaelch::scraper::MovieSearchJob
         return;
     }
 
-    if (m_scraperInterface->meta().identifier == CustomMovieScraper::ID) {
+    MovieIdentifier id = searchJob->results().first().identifier;
+
+    if (m_currentScraper->meta().identifier == CustomMovieScraper::ID) {
+        // TODO ANDRE
+        /*
         auto* scraper = dynamic_cast<MovieScraper*>(QObject::sender());
         m_currentIds.insert(scraper, searchJob->results().first().identifier);
         const QVector<MovieScraper*>& searchScrapers =
@@ -318,11 +357,10 @@ void MovieMultiScrapeDialog::onSearchFinished(mediaelch::scraper::MovieSearchJob
 
             return;
         }
-    } else {
-        m_currentIds.insert(m_scraperInterface, searchJob->results().first().identifier);
+*/
     }
 
-    m_currentMovie->controller()->loadData(m_currentIds, m_scraperInterface, m_infosToLoad);
+    m_currentMovie->controller()->loadData(m_currentScraper, id, m_locale, m_infosToLoad);
 }
 
 void MovieMultiScrapeDialog::onProgress(Movie* movie, int current, int maximum)
@@ -390,4 +428,21 @@ void MovieMultiScrapeDialog::setCheckBoxesEnabled(int index)
                         && scraperSupports.contains(MovieScraperInfo(box->myData().toInt())));
     }
     onChkToggled();
+}
+
+void MovieMultiScrapeDialog::onLanguageChanged()
+{
+    const auto& meta = m_currentScraper->meta();
+    m_locale = ui->comboLanguage->currentLocale();
+
+    // Save immediately.
+    ScraperSettings* scraperSettings = Settings::instance()->scraperSettings(meta.identifier);
+    scraperSettings->setLanguage(m_locale);
+    scraperSettings->save();
+}
+
+void MovieMultiScrapeDialog::showError(const QString& message)
+{
+    ui->lblError->setText(message);
+    ui->lblError->show();
 }

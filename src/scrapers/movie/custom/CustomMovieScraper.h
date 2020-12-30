@@ -24,11 +24,14 @@ public:
     bool isInitialized() const override;
 
     ELCH_NODISCARD MovieSearchJob* search(MovieSearchJob::Config config) override;
+    /// \brief   Returns a movie scrape job that needs to be customized before being executed.
+    /// \details Because the custom movie scraper does not use a single scraper
+    ///          but multiple ones, multiple movie identifiers are required.
+    ///          This is why the returned CustomMovieScrapeJob has customization endpoints.
+    /// \see     CustomMovieScrapeJob
+    ELCH_NODISCARD MovieScrapeJob* loadMovie(MovieScrapeJob::Config config) override;
 
 public:
-    void loadData(QHash<MovieScraper*, mediaelch::scraper::MovieIdentifier> ids,
-        Movie* movie,
-        QSet<MovieScraperInfo> infos) override;
     bool hasSettings() const override;
     void loadSettings(ScraperSettings& settings) override;
     void saveSettings(ScraperSettings& settings) override;

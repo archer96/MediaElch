@@ -25,8 +25,10 @@ MovieSearchWidget::MovieSearchWidget(QWidget* parent) : QWidget(parent), ui(new 
         this,
         &MovieSearchWidget::onLanguageChanged,
         Qt::QueuedConnection);
+
     connect(ui->results, &QTableWidget::itemClicked, this, &MovieSearchWidget::resultClicked);
     connect(ui->searchString, &MyLineEdit::returnPressed, this, &MovieSearchWidget::startSearch);
+
     connect(ui->searchString, &QLineEdit::textEdited, this, [this](QString searchString) {
         m_searchString = searchString;
     });
@@ -37,6 +39,11 @@ MovieSearchWidget::MovieSearchWidget(QWidget* parent) : QWidget(parent), ui(new 
 MovieSearchWidget::~MovieSearchWidget()
 {
     delete ui;
+}
+
+const mediaelch::Locale& MovieSearchWidget::scraperLocale() const
+{
+    return m_currentLanguage;
 }
 
 void MovieSearchWidget::clearResults()
@@ -70,14 +77,17 @@ void MovieSearchWidget::search(QString searchString, ImdbId id, TmdbId tmdbId)
 void MovieSearchWidget::startSearch()
 {
     using namespace mediaelch::scraper;
+
     if (m_currentScraper == nullptr) {
         qWarning() << "Tried to search for movie without active scraper!";
         showError(tr("Cannot scrape a movie without an active scraper!"));
         return;
     }
+
     if (m_currentScraper->meta().identifier == mediaelch::scraper::CustomMovieScraper::ID) {
         m_currentCustomScraper = mediaelch::scraper::CustomMovieScraper::instance()->titleScraper();
     }
+
     setCheckBoxesEnabled(m_currentScraper->meta().supportedDetails);
     clearResults();
     ui->comboScraper->setEnabled(false);
@@ -156,8 +166,9 @@ void MovieSearchWidget::setupLanguageDropdown()
     const mediaelch::Locale defaultLanguage = m_currentScraper->meta().defaultLocale;
     m_currentLanguage = defaultLanguage;
     m_currentScraper->changeLanguage(defaultLanguage); // store the default language
+    m_currentScraper->saveSettings(*Settings::instance()->scraperSettings(m_currentScraper->meta().identifier));
 
-    ui->comboLanguage->setupLanguages(supportedLocales, mediaelch::Locale(m_currentLanguage));
+    ui->comboLanguage->setupLanguages(supportedLocales, m_currentLanguage);
 }
 
 void MovieSearchWidget::showResults(mediaelch::scraper::MovieSearchJob* searchJob)
@@ -194,6 +205,8 @@ void MovieSearchWidget::showResults(mediaelch::scraper::MovieSearchJob* searchJo
 
 void MovieSearchWidget::resultClicked(QTableWidgetItem* item)
 {
+    // For all scrapers except the CustomMovieScraper, we simply emit
+    // a signal.  The CustomMovieScraper may need to search on multiple sites.
     if (m_currentScraper->meta().identifier != mediaelch::scraper::CustomMovieScraper::ID
         && m_customScraperIds.isEmpty()) {
         m_scraperMovieId = item->data(Qt::UserRole).toString();
@@ -201,6 +214,7 @@ void MovieSearchWidget::resultClicked(QTableWidgetItem* item)
         emit sigResultClicked();
         return;
     }
+
     // is custom movie scraper
     ui->comboScraper->setEnabled(false);
     ui->comboLanguage->setEnabled(false);
@@ -301,15 +315,22 @@ QHash<mediaelch::scraper::MovieScraper*, mediaelch::scraper::MovieIdentifier> Mo
 
 void MovieSearchWidget::onScraperChanged()
 {
-    int index = ui->comboScraper->currentIndex();
+    const int index = ui->comboScraper->currentIndex();
     if (index < 0 || index >= Manager::instance()->scrapers().movieScrapers().size()) {
         qCritical() << "[Movie Search] Selected invalid scraper:" << index;
         showError(tr("Internal inconsistency: Selected an invalid scraper!"));
         return;
     }
 
-    QString scraperId = ui->comboScraper->itemData(index, Qt::UserRole).toString();
-    m_currentScraper = Manager::instance()->scrapers().movieScraper(scraperId);
+    const QString scraperId = ui->comboScraper->itemData(index, Qt::UserRole).toString();
+    auto* scraper = Manager::instance()->scrapers().movieScraper(scraperId);
+    Q_ASSERT(scraper != nullptr);
+
+    m_currentScraper = scraper;
+
+    if (m_currentScraper->meta().identifier == mediaelch::scraper::CustomMovieScraper::ID) {
+        onCustomMovieScraperSelected();
+    }
 
     setupLanguageDropdown();
     startSearch();
@@ -320,6 +341,25 @@ void MovieSearchWidget::onLanguageChanged()
     m_currentLanguage = ui->comboLanguage->currentLocale();
     m_currentScraper->changeLanguage(m_currentLanguage);
     startSearch();
+}
+
+void MovieSearchWidget::onCustomMovieScraperSelected()
+{
+    using namespace mediaelch::scraper;
+    auto* scraper = dynamic_cast<CustomMovieScraper*>(m_currentScraper);
+    Q_ASSERT(scraper != nullptr);
+
+    QString label = tr("The following scrapers need a search result before MediaElch can load all details:");
+    label += "<br/>";
+
+    // Get all scrapers that need searching
+    auto scrapers = CustomMovieScraper::instance()->scrapersNeedSearch(infosToLoad(), {});
+    for (auto* scraper : asConst(scrapers)) {
+        label += QStringLiteral("%1<br/>").arg(scraper->meta().name);
+    }
+
+    ui->lblCustomScraperInfo->setText(label);
+    ui->lblCustomScraperInfo->setTextFormat(Qt::TextFormat::RichText);
 }
 
 void MovieSearchWidget::setSearchText(mediaelch::scraper::MovieScraper* scraper)

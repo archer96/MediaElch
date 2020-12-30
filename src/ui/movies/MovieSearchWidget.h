@@ -30,6 +30,10 @@ public:
     explicit MovieSearchWidget(QWidget* parent = nullptr);
     ~MovieSearchWidget() override;
 
+    /// \brief Returns the selected locale.
+    /// \note Do not call this method "locale" as it refers to QWidget's locale().
+    const mediaelch::Locale& scraperLocale() const;
+
 public slots:
     QString scraperId();
     QString scraperMovieId();
@@ -48,6 +52,7 @@ private slots:
     void toggleAllInfo(bool checked);
     void onScraperChanged();
     void onLanguageChanged();
+    void onCustomMovieScraperSelected();
 
 private:
     Ui::MovieSearchWidget* ui = nullptr;
@@ -62,6 +67,7 @@ private:
     TmdbId m_tmdbId;
     QString m_searchString;
 
+private:
     void clearResults();
     void setCheckBoxesEnabled(QSet<MovieScraperInfo> scraperSupports);
     void setupComboBoxes();

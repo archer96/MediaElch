@@ -1,6 +1,7 @@
 #include "test/test_helpers.h"
 
 #include "scrapers/movie/hotmovies/HotMovies.h"
+#include "scrapers/movie/hotmovies/HotMoviesScrapeJob.h"
 #include "scrapers/movie/hotmovies/HotMoviesSearchJob.h"
 #include "test/scrapers/testScraperHelpers.h"
 
@@ -15,11 +16,19 @@ static HotMoviesApi& getHotMoviesApi()
     return *api;
 }
 
-/// @brief Loads movie data synchronously
-static void loadHotMoviesSync(HotMovies& scraper, QHash<MovieScraper*, MovieIdentifier> ids, Movie& movie)
+static MovieScrapeJob::Config makeHotMoviesConfig(QString id)
 {
-    const auto infos = scraper.meta().supportedDetails;
-    loadDataSync(scraper, ids, movie, infos);
+    static auto hotMovies = std::make_unique<HotMovies>();
+    MovieScrapeJob::Config config;
+    config.identifier = MovieIdentifier(id);
+    config.details = hotMovies->meta().supportedDetails;
+    config.locale = hotMovies->meta().defaultLocale;
+    return config;
+}
+
+static auto makeScrapeJob(QString id)
+{
+    return std::make_unique<HotMoviesScrapeJob>(getHotMoviesApi(), makeHotMoviesConfig(id));
 }
 
 TEST_CASE("HotMovies returns valid search results", "[HotMovies][search]")
@@ -35,17 +44,15 @@ TEST_CASE("HotMovies returns valid search results", "[HotMovies][search]")
     }
 }
 
-
 TEST_CASE("HotMovies scrapes correct movie details", "[HotMovies][load_data]")
 {
     HotMovies hm;
 
     SECTION("Movie has correct details")
     {
-        Movie m(QStringList{}); // Movie without files
-        loadHotMoviesSync(hm,
-            {{nullptr, MovieIdentifier("https://www.hotmovies.com/video/292788/Magic-Mike-XXXL-A-Hardcore-Parody/")}},
-            m);
+        auto scrapeJob = makeScrapeJob("https://www.hotmovies.com/video/292788/Magic-Mike-XXXL-A-Hardcore-Parody/");
+        scrapeMovieScraperSync(scrapeJob.get(), false);
+        auto& m = scrapeJob->movie();
 
         REQUIRE_THAT(m.name(), StartsWith("Magic Mike XXXL"));
         CHECK(m.imdbId() == ImdbId::NoId);
@@ -83,9 +90,10 @@ TEST_CASE("HotMovies scrapes correct movie details", "[HotMovies][load_data]")
 
     SECTION("Movie has correct set")
     {
-        Movie m(QStringList{}); // Movie without files
-        loadHotMoviesSync(
-            hm, {{nullptr, MovieIdentifier("https://www.hotmovies.com/video/214343/-M-Is-For-Mischief-Number-3/")}}, m);
+        auto scrapeJob = makeScrapeJob("https://www.hotmovies.com/video/214343/-M-Is-For-Mischief-Number-3/");
+        scrapeMovieScraperSync(scrapeJob.get(), false);
+        auto& m = scrapeJob->movie();
+
         CHECK(m.name() == "\"M\" Is For Mischief Number 3");
         CHECK(m.set().name == "\"M\" Is For Mischief");
     }

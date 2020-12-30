@@ -2,6 +2,7 @@
 
 #include "data/Storage.h"
 #include "network/NetworkRequest.h"
+#include "scrapers/movie/aebn/AebnScrapeJob.h"
 #include "scrapers/movie/aebn/AebnSearchJob.h"
 #include "ui/main/MainWindow.h"
 
@@ -108,6 +109,11 @@ MovieSearchJob* AEBN::search(MovieSearchJob::Config config)
     return new AebnSearchJob(m_api, std::move(config), m_genreId, this);
 }
 
+MovieScrapeJob* AEBN::loadMovie(MovieScrapeJob::Config config)
+{
+    return new AebnScrapeJob(m_api, std::move(config), m_genreId, this);
+}
+
 void AEBN::changeLanguage(mediaelch::Locale locale)
 {
     // Does not store the new language in settings.
@@ -117,201 +123,6 @@ void AEBN::changeLanguage(mediaelch::Locale locale)
 QSet<MovieScraperInfo> AEBN::scraperNativelySupports()
 {
     return m_meta.supportedDetails;
-}
-
-void AEBN::loadData(QHash<MovieScraper*, mediaelch::scraper::MovieIdentifier> ids,
-    Movie* movie,
-    QSet<MovieScraperInfo> infos)
-{
-    m_api.loadMovie(ids.values().first().str(),
-        m_language,
-        m_genreId, //
-        [movie, infos, this](QString data, ScraperError error) {
-            movie->clear(infos);
-
-            if (!error.hasError()) {
-                QStringList actorIds;
-                parseAndAssignInfos(data, movie, infos, actorIds);
-                if (!actorIds.isEmpty()) {
-                    downloadActors(movie, actorIds);
-                    return;
-                }
-            } else {
-                // TODO
-                showNetworkError(error);
-            }
-            movie->controller()->scraperLoadDone(this, error);
-        });
-}
-
-void AEBN::parseAndAssignInfos(QString html, Movie* movie, QSet<MovieScraperInfo> infos, QStringList& actorIds)
-{
-    QRegExp rx;
-    rx.setMinimal(true);
-
-    rx.setPattern(R"(<h1 itemprop="name"  class="md-movieTitle"  >(.*)</h1>)");
-    if (infos.contains(MovieScraperInfo::Title) && rx.indexIn(html) != -1) {
-        movie->setName(rx.cap(1));
-    }
-
-    rx.setPattern("<span class=\"runTime\"><span itemprop=\"duration\" content=\"([^\"]*)\">([0-9]+)</span>");
-    if (infos.contains(MovieScraperInfo::Runtime) && rx.indexIn(html) != -1) {
-        movie->setRuntime(std::chrono::minutes(rx.cap(2).toInt()));
-    }
-
-    rx.setPattern("<span class=\"detailsLink\" itemprop=\"datePublished\" content=\"([0-9]{4})(.*)\">");
-    if (infos.contains(MovieScraperInfo::Released) && rx.indexIn(html) != -1) {
-        movie->setReleased(QDate::fromString(rx.cap(1), "yyyy"));
-    }
-
-    rx.setPattern("<span itemprop=\"about\">(.*)</span>");
-    if (infos.contains(MovieScraperInfo::Overview) && rx.indexIn(html) != -1) {
-        movie->setOverview(rx.cap(1));
-        if (Settings::instance()->usePlotForOutline()) {
-            movie->setOutline(rx.cap(1));
-        }
-    }
-
-    rx.setPattern("<div id=\"md-boxCover\"><a href=\"([^\"]*)\" target=\"_blank\" onclick=\"([^\"]*)\"><img "
-                  "itemprop=\"thumbnailUrl\" src=\"([^\"]*)\" alt=\"([^\"]*)\" name=\"boxImage\" id=\"boxImage\" "
-                  "/></a>");
-    if (infos.contains(MovieScraperInfo::Poster) && rx.indexIn(html) != -1) {
-        Poster p;
-        p.thumbUrl = QString("https:") + rx.cap(3);
-        p.originalUrl = QString("https:") + rx.cap(1);
-        movie->images().addPoster(p);
-    }
-
-    rx.setPattern("<span class=\"detailsLink\"><a href=\"([^\"]*)\" class=\"series\">(.*)</a>");
-    if (infos.contains(MovieScraperInfo::Set) && rx.indexIn(html) != -1) {
-        MovieSet set;
-        set.name = rx.cap(2);
-        movie->setSet(set);
-    }
-
-    rx.setPattern("<span class=\"detailsLink\" itemprop=\"director\" itemscope "
-                  "itemtype=\"http://schema.org/Person\">(.*)<a href=\"(.*)\" itemprop=\"name\">(.*)</a>");
-    if (infos.contains(MovieScraperInfo::Director) && rx.indexIn(html) != -1) {
-        movie->setDirector(rx.cap(3));
-    }
-
-    rx.setPattern("<a href=\"(.*)\" itemprop=\"productionCompany\">(.*)</a>");
-    if (infos.contains(MovieScraperInfo::Studios) && rx.indexIn(html) != -1) {
-        movie->addStudio(rx.cap(2));
-    }
-
-    if (infos.contains(MovieScraperInfo::Genres)) {
-        int offset = 0;
-        rx.setPattern("<a href=\"(.*)\"(.*) itemprop=\"genre\">(.*)</a>");
-        while ((offset = rx.indexIn(html, offset)) != -1) {
-            movie->addGenre(rx.cap(3));
-            offset += rx.matchedLength();
-        }
-    }
-
-    if (infos.contains(MovieScraperInfo::Tags)) {
-        int offset = 0;
-        rx.setPattern("<a href=\"(.*)sexActs=[0-9]*(.*)\" (.*)>(.*)</a>");
-        while ((offset = rx.indexIn(html, offset)) != -1) {
-            movie->addTag(rx.cap(4));
-            offset += rx.matchedLength();
-        }
-        offset = 0;
-        rx.setPattern("<a href=\"(.*)positions=[0-9]*(.*)\" (.*)>(.*)</a>");
-        while ((offset = rx.indexIn(html, offset)) != -1) {
-            movie->addTag(rx.cap(4));
-            offset += rx.matchedLength();
-        }
-    }
-
-    if (infos.contains(MovieScraperInfo::Actors)) {
-        // clear actors
-        movie->setActors({});
-
-        int offset = 0;
-        rx.setPattern("<a href=\"/dispatcher/starDetail\\?(.*)starId=([0-9]*)&amp;(.*)\"  class=\"linkWithPopup\" "
-                      "onmouseover=\"(.*)\" onmouseout=\"killPopUp\\(\\)\"   itemprop=\"actor\" itemscope "
-                      "itemtype=\"http://schema.org/Person\"><span itemprop=\"name\">(.*)</span></a>");
-        while ((offset = rx.indexIn(html, offset)) != -1) {
-            offset += rx.matchedLength();
-
-            const QString actorName = rx.cap(5);
-            const QVector<Actor*> actors = movie->actors();
-
-            const bool actorAlreadyAdded = std::any_of(actors.cbegin(), actors.cend(), [&actorName](const Actor* a) { //
-                return a->name == actorName;                                                                          //
-            });
-
-            if (actorAlreadyAdded) {
-                continue;
-            }
-
-            Actor a;
-            a.name = rx.cap(5);
-            a.id = rx.cap(2);
-            movie->addActor(a);
-            if (Settings::instance()->downloadActorImages() && !actorIds.contains(rx.cap(2))) {
-                actorIds.append(rx.cap(2));
-            }
-        }
-
-        offset = 0;
-        rx.setPattern("<a href=\"([^\"]*)\"   itemprop=\"actor\" itemscope itemtype=\"http://schema.org/Person\"><span "
-                      "itemprop=\"name\">(.*)</span></a>");
-        while ((offset = rx.indexIn(html, offset)) != -1) {
-            offset += rx.matchedLength();
-
-            const QString actorName = rx.cap(2);
-            const QVector<Actor*> actors = movie->actors();
-
-            const bool actorAlreadyAdded = std::any_of(actors.cbegin(), actors.cend(), [&actorName](const Actor* a) { //
-                return a->name == actorName;                                                                          //
-            });
-
-            if (!actorAlreadyAdded) {
-                Actor a;
-                a.name = rx.cap(2);
-                movie->addActor(a);
-            }
-        }
-    }
-}
-
-void AEBN::downloadActors(Movie* movie, QStringList actorIds)
-{
-    if (actorIds.isEmpty()) {
-        movie->controller()->scraperLoadDone(this, {}); // done
-        return;
-    }
-
-    QString id = actorIds.takeFirst();
-    m_api.loadActor(id, m_language, m_genreId, [movie, id, actorIds, this](QString data, ScraperError error) {
-        if (!error.hasError()) {
-            parseAndAssignActor(data, movie, id);
-
-        } else {
-            // TODO
-            showNetworkError(error);
-        }
-
-        // Try to avoid a huge stack of nested lambdas.
-        // With this we should return to the event loop and then execute this.
-        // TODO: I'm not 100% sure that it works, though...
-        QTimer::singleShot(0, [this, movie, actorIds]() { downloadActors(movie, actorIds); });
-    });
-}
-
-void AEBN::parseAndAssignActor(QString html, Movie* movie, QString id)
-{
-    QRegExp rx(R"lit(<img itemprop="image" src="([^"]*)" alt="([^"]*)" class="star" />)lit");
-    rx.setMinimal(true);
-    if (rx.indexIn(html) != -1) {
-        for (Actor* a : movie->actors()) {
-            if (a->id == id) {
-                a->thumb = QStringLiteral("https:") + rx.cap(1);
-            }
-        }
-    }
 }
 
 bool AEBN::hasSettings() const

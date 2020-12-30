@@ -1,5 +1,6 @@
 #include "TMDbImages.h"
 
+#include "scrapers/movie/MovieMerger.h"
 #include "scrapers/movie/tmdb/TmdbMovie.h"
 #include "settings/Settings.h"
 
@@ -102,9 +103,6 @@ TMDbImages::TMDbImages(QObject* parent) : ImageProvider(parent)
 
     m_searchResultLimit = 0;
     m_tmdb = new mediaelch::scraper::TmdbMovie(this);
-    m_dummyMovie = new Movie({}, this);
-
-    connect(m_dummyMovie->controller(), &MovieController::sigInfoLoadDone, this, &TMDbImages::onLoadImagesFinished);
 }
 
 const ImageProvider::ScraperMeta& TMDbImages::meta() const
@@ -124,7 +122,7 @@ void TMDbImages::searchMovie(QString searchStr, int limit)
     m_searchResultLimit = limit;
 
     MovieSearchJob::Config config;
-    config.locale = m_tmdb->meta().defaultLocale; // FIXME: Language selection?
+    // TODO config.locale = m_tmdb->meta().defaultLocale; // FIXME: Language selection?
     config.includeAdult = Settings::instance()->showAdultScrapers();
     config.query = searchStr.trimmed();
     auto* searchJob = m_tmdb->search(config);
@@ -159,47 +157,39 @@ void TMDbImages::onSearchMovieFinished(mediaelch::scraper::MovieSearchJob* searc
     emit sigSearchDone(results, searchJob->error());
 }
 
-/**
- * \brief Load movie posters
- */
 void TMDbImages::moviePosters(TmdbId tmdbId)
 {
     using namespace mediaelch::scraper;
-    m_dummyMovie->clear();
-    m_imageType = ImageType::MoviePoster;
-    QSet<MovieScraperInfo> infos;
-    infos << MovieScraperInfo::Poster;
-    QHash<MovieScraper*, MovieIdentifier> ids;
-    ids.insert(nullptr, MovieIdentifier(tmdbId.toString()));
-    m_tmdb->loadData(ids, m_dummyMovie, infos);
+
+    MovieScrapeJob::Config config;
+    config.identifier = MovieIdentifier(tmdbId);
+    config.details = {MovieScraperInfo::Poster};
+    // config.locale = TODO
+
+    auto* scrapeJob = m_tmdb->loadMovie(config);
+    connect(scrapeJob, &MovieScrapeJob::sigFinished, this, &TMDbImages::onMovieLoadImagesFinished);
+    scrapeJob->execute();
 }
 
-/**
- * \brief Load movie backdrops
- */
 void TMDbImages::movieBackdrops(TmdbId tmdbId)
 {
     using namespace mediaelch::scraper;
-    m_dummyMovie->clear();
-    m_imageType = ImageType::MovieBackdrop;
-    QSet<MovieScraperInfo> infos;
-    infos << MovieScraperInfo::Backdrop;
-    QHash<MovieScraper*, MovieIdentifier> ids;
-    ids.insert(nullptr, MovieIdentifier(tmdbId.toString()));
-    m_tmdb->loadData(ids, m_dummyMovie, infos);
+
+    MovieScrapeJob::Config config;
+    config.identifier = MovieIdentifier(tmdbId);
+    config.details = {MovieScraperInfo::Backdrop};
+    // config.locale = TODO
+
+    auto* scrapeJob = m_tmdb->loadMovie(config);
+    connect(scrapeJob, &MovieScrapeJob::sigFinished, this, &TMDbImages::onMovieLoadImagesFinished);
+    scrapeJob->execute();
 }
 
-/**
- * \brief Load concert posters
- */
 void TMDbImages::concertPosters(TmdbId tmdbId)
 {
     moviePosters(tmdbId);
 }
 
-/**
- * \brief Load concert backdrops
- */
 void TMDbImages::concertBackdrops(TmdbId tmdbId)
 {
     movieBackdrops(tmdbId);
@@ -208,13 +198,16 @@ void TMDbImages::concertBackdrops(TmdbId tmdbId)
 /**
  * \brief Called when the movie images are downloaded
  */
-void TMDbImages::onLoadImagesFinished()
+void TMDbImages::onMovieLoadImagesFinished(mediaelch::scraper::MovieScrapeJob* job)
 {
+    auto dls = makeDeleteLaterScope(job);
+
     QVector<Poster> posters;
-    if (m_imageType == ImageType::MovieBackdrop) {
-        posters = m_dummyMovie->images().backdrops();
-    } else if (m_imageType == ImageType::MoviePoster) {
-        posters = m_dummyMovie->images().posters();
+    if (job->config().details.contains(MovieScraperInfo::Backdrop)) {
+        posters = job->movie().images().backdrops();
+
+    } else if (job->config().details.contains(MovieScraperInfo::Poster)) {
+        posters = job->movie().images().posters();
     }
 
     emit sigImagesLoaded(posters, {});

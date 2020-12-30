@@ -16,4 +16,6 @@ searchTvScraperSync(mediaelch::scraper::ShowSearchJob* searchJob, bool mayError 
 QPair<QVector<mediaelch::scraper::MovieSearchJob::Result>, mediaelch::ScraperError>
 searchMovieScraperSync(mediaelch::scraper::MovieSearchJob* searchJob, bool mayError = false);
 
+void scrapeMovieScraperSync(mediaelch::scraper::MovieScrapeJob* scrapeJob, bool mayError = false);
+
 void scrapeTvScraperSync(mediaelch::scraper::ShowScrapeJob* scrapeJob, bool mayError = false);

@@ -26,11 +26,9 @@ public:
     bool isInitialized() const override;
 
     ELCH_NODISCARD MovieSearchJob* search(MovieSearchJob::Config config) override;
+    ELCH_NODISCARD MovieScrapeJob* loadMovie(MovieScrapeJob::Config config) override;
 
 public:
-    void loadData(QHash<MovieScraper*, mediaelch::scraper::MovieIdentifier> ids,
-        Movie* movie,
-        QSet<MovieScraperInfo> infos) override;
     bool hasSettings() const override;
     void loadSettings(ScraperSettings& settings) override;
     void saveSettings(ScraperSettings& settings) override;
@@ -44,16 +42,11 @@ private:
     ScraperMeta m_meta;
     AebnApi m_api;
 
-    mediaelch::network::NetworkManager m_network;
     mediaelch::Locale m_language;
     QString m_genreId;
     QWidget* m_widget;
     QComboBox* m_box;
     QComboBox* m_genreBox;
-
-    void parseAndAssignInfos(QString html, Movie* movie, QSet<MovieScraperInfo> infos, QStringList& actorIds);
-    void downloadActors(Movie* movie, QStringList actorIds);
-    void parseAndAssignActor(QString html, Movie* movie, QString id);
 };
 
 } // namespace scraper

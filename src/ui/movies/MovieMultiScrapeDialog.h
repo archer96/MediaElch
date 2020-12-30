@@ -42,14 +42,22 @@ private slots:
     void onChkToggled();
     void onChkAllToggled();
     void setCheckBoxesEnabled(int index);
+    void onLanguageChanged();
+
+private:
+    void setupLanguageDropdown();
+    void setupScraperDropdown();
+    void showError(const QString& message);
 
 private:
     Ui::MovieMultiScrapeDialog* ui = nullptr;
     QVector<Movie*> m_movies;
     QQueue<Movie*> m_queue;
     QPointer<Movie> m_currentMovie;
-    mediaelch::scraper::MovieScraper* m_scraperInterface = nullptr;
+    mediaelch::scraper::MovieScraper* m_currentScraper = nullptr;
     QHash<mediaelch::scraper::MovieScraper*, mediaelch::scraper::MovieIdentifier> m_currentIds;
+    mediaelch::Locale m_locale = mediaelch::Locale::English;
+
     bool m_isImdb = false;
     bool m_isTmdb = false;
     bool m_executed = false;

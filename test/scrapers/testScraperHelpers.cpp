@@ -74,6 +74,21 @@ searchMovieScraperSync(mediaelch::scraper::MovieSearchJob* searchJob, bool mayEr
     return {results, error};
 }
 
+void scrapeMovieScraperSync(mediaelch::scraper::MovieScrapeJob* scrapeJob, bool mayError)
+{
+    QEventLoop loop;
+    QEventLoop::connect(scrapeJob,
+        &mediaelch::scraper::MovieScrapeJob::sigFinished,
+        [&](mediaelch::scraper::MovieScrapeJob* /*unused*/) { loop.quit(); });
+    scrapeJob->execute();
+    loop.exec();
+    if (!mayError) {
+        CAPTURE(scrapeJob->error().message);
+        CAPTURE(scrapeJob->error().technical);
+        CHECK(!scrapeJob->hasError());
+    }
+}
+
 void scrapeTvScraperSync(mediaelch::scraper::ShowScrapeJob* scrapeJob, bool mayError)
 {
     QEventLoop loop;
