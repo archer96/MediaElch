@@ -3,6 +3,8 @@
 #include "globals/DownloadManagerElement.h"
 #include "globals/Poster.h"
 #include "globals/ScraperInfos.h"
+#include "scrapers/ScraperError.h"
+#include "scrapers/movie/MovieIdentifier.h"
 
 #include <QMap>
 #include <QMutex>
@@ -40,7 +42,7 @@ public:
     /// \param ids Id of the movie within the given ScraperInterface
     /// \param scraperInterface ScraperInterface to use for loading
     /// \param infos List of infos to load
-    void loadData(QHash<mediaelch::scraper::MovieScraper*, QString> ids,
+    void loadData(QHash<mediaelch::scraper::MovieScraper*, mediaelch::scraper::MovieIdentifier> ids,
         mediaelch::scraper::MovieScraper* scraperInterface,
         QSet<MovieScraperInfo> infos);
 
@@ -48,7 +50,7 @@ public:
 
     /// \brief Called when a ScraperInterface has finished loading
     ///        Emits the loaded signal
-    void scraperLoadDone(mediaelch::scraper::MovieScraper* scraper);
+    void scraperLoadDone(mediaelch::scraper::MovieScraper* scraper, mediaelch::ScraperError error);
 
     QSet<MovieScraperInfo> infosToLoad();
 

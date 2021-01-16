@@ -4,6 +4,7 @@
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QtCore/qmath.h>
+#include <chrono>
 
 #include "data/ImageCache.h"
 #include "file/NameFormatter.h"
@@ -17,6 +18,8 @@
 #include "scrapers/movie/imdb/ImdbMovie.h"
 #include "scrapers/movie/tmdb/TmdbMovie.h"
 #include "settings/Settings.h"
+// TODO: Remove UI dependency
+#include "ui/notifications/NotificationBox.h"
 
 MovieController::MovieController(Movie* parent) :
     QObject(parent),
@@ -133,20 +136,20 @@ bool MovieController::loadData(MediaCenterInterface* mediaCenterInterface, bool 
     return infoLoaded;
 }
 
-void MovieController::loadData(QHash<mediaelch::scraper::MovieScraper*, QString> ids,
+void MovieController::loadData(QHash<mediaelch::scraper::MovieScraper*, mediaelch::scraper::MovieIdentifier> ids,
     mediaelch::scraper::MovieScraper* scraperInterface,
     QSet<MovieScraperInfo> infos)
 {
     emit sigLoadStarted(m_movie);
     m_infosToLoad = infos;
     if (scraperInterface->meta().identifier == mediaelch::scraper::TmdbMovie::ID
-        && !ids.values().first().startsWith("tt")) {
-        m_movie->setTmdbId(TmdbId(ids.values().first()));
+        && !ids.values().first().str().startsWith("tt")) {
+        m_movie->setTmdbId(TmdbId(ids.values().first().str()));
 
     } else if (scraperInterface->meta().identifier == mediaelch::scraper::ImdbMovie::ID
                || (scraperInterface->meta().identifier == mediaelch::scraper::TmdbMovie::ID
-                   && ids.values().first().startsWith("tt"))) {
-        m_movie->setImdbId(ImdbId(ids.values().first()));
+                   && ids.values().first().str().startsWith("tt"))) {
+        m_movie->setImdbId(ImdbId(ids.values().first().str()));
     }
     scraperInterface->loadData(ids, m_movie, infos);
 }
@@ -175,8 +178,16 @@ void MovieController::setInfosToLoad(QSet<MovieScraperInfo> infos)
     m_infosToLoad = std::move(infos);
 }
 
-void MovieController::scraperLoadDone(mediaelch::scraper::MovieScraper* scraper)
+void MovieController::scraperLoadDone(mediaelch::scraper::MovieScraper* scraper, mediaelch::ScraperError error)
 {
+    using namespace std::chrono_literals;
+
+    if (error.hasError() && !error.is404()) {
+        // TODO: 404 not necessary but avoids false positives at the moment.
+        // TODO: Remove UI dependency
+        NotificationBox::instance()->showError(error.message, 6s);
+    }
+
     m_customScraperMutex.lock();
     if (!property("customMovieScraperLoads").isNull() && property("customMovieScraperLoads").toInt() > 1) {
         setProperty("customMovieScraperLoads", property("customMovieScraperLoads").toInt() - 1);
@@ -418,7 +429,7 @@ void MovieController::removeFromLoadsLeft(ScraperData load)
     m_loadMutex.lock();
     if (m_loadsLeft.isEmpty() && !m_loadDoneFired) {
         m_loadDoneFired = true;
-        scraperLoadDone(Manager::instance()->scrapers().movieScraper(mediaelch::scraper::TmdbMovie::ID));
+        scraperLoadDone(Manager::instance()->scrapers().movieScraper(mediaelch::scraper::TmdbMovie::ID), {});
     }
     m_loadMutex.unlock();
 }

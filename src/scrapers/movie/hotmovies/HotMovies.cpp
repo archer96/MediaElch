@@ -3,6 +3,7 @@
 #include "data/Storage.h"
 #include "globals/Helper.h"
 #include "network/NetworkRequest.h"
+#include "scrapers/movie/hotmovies/HotMoviesSearchJob.h"
 #include "ui/main/MainWindow.h"
 
 #include <QDebug>
@@ -57,6 +58,11 @@ bool HotMovies::isInitialized() const
     return true;
 }
 
+MovieSearchJob* HotMovies::search(MovieSearchJob::Config config)
+{
+    return new HotMoviesSearchJob(m_api, std::move(config), this);
+}
+
 QSet<MovieScraperInfo> HotMovies::scraperNativelySupports()
 {
     return m_meta.supportedDetails;
@@ -72,40 +78,11 @@ mediaelch::network::NetworkManager* HotMovies::network()
     return &m_network;
 }
 
-void HotMovies::search(QString searchStr)
+void HotMovies::loadData(QHash<MovieScraper*, mediaelch::scraper::MovieIdentifier> ids,
+    Movie* movie,
+    QSet<MovieScraperInfo> infos)
 {
-    m_api.searchForMovie(searchStr, [this](QString data, ScraperError error) {
-        if (error.hasError()) {
-            qWarning() << "[HotMovies] Search Error" << error.message << "|" << error.technical;
-            emit searchDone({}, error);
-
-        } else {
-            emit searchDone(parseSearch(data), {});
-        }
-    });
-}
-
-QVector<ScraperSearchResult> HotMovies::parseSearch(QString html)
-{
-    QVector<ScraperSearchResult> results;
-    int offset = 0;
-
-    QRegExp rx(R"lit(<div class="cell td_title">.*<h3 class="title">.*<a href="([^"]*)" title="[^"]*">(.*)</a>)lit");
-    rx.setMinimal(true);
-    while ((offset = rx.indexIn(html, offset)) != -1) {
-        ScraperSearchResult result;
-        result.id = rx.cap(1);
-        result.name = QTextDocumentFragment::fromHtml(rx.cap(2)).toPlainText().trimmed();
-        results << result;
-        offset += rx.matchedLength();
-    }
-
-    return results;
-}
-
-void HotMovies::loadData(QHash<MovieScraper*, QString> ids, Movie* movie, QSet<MovieScraperInfo> infos)
-{
-    m_api.loadMovie(ids.values().first(), [movie, infos, this](QString data, ScraperError error) {
+    m_api.loadMovie(ids.values().first().str(), [movie, infos, this](QString data, ScraperError error) {
         movie->clear(infos);
 
         if (!error.hasError()) {
@@ -116,7 +93,7 @@ void HotMovies::loadData(QHash<MovieScraper*, QString> ids, Movie* movie, QSet<M
             showNetworkError(error);
         }
 
-        movie->controller()->scraperLoadDone(this);
+        movie->controller()->scraperLoadDone(this, error);
     });
 }
 

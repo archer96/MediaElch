@@ -5,7 +5,7 @@
 #include "data/Storage.h"
 #include "globals/Globals.h"
 #include "globals/Helper.h"
-#include "network/NetworkRequest.h"
+#include "scrapers/movie/videobuster/VideoBusterSearchJob.h"
 #include "settings/Settings.h"
 
 namespace mediaelch {
@@ -47,7 +47,6 @@ const MovieScraper::ScraperMeta& VideoBuster::meta() const
 
 void VideoBuster::initialize()
 {
-    // no-op
     // VideoBuster requires no initialization.
 }
 
@@ -57,9 +56,9 @@ bool VideoBuster::isInitialized() const
     return true;
 }
 
-mediaelch::network::NetworkManager* VideoBuster::network()
+MovieSearchJob* VideoBuster::search(MovieSearchJob::Config config)
 {
-    return &m_network;
+    return new VideoBusterSearchJob(m_api, std::move(config), this);
 }
 
 QSet<MovieScraperInfo> VideoBuster::scraperNativelySupports()
@@ -72,56 +71,11 @@ void VideoBuster::changeLanguage(mediaelch::Locale /*locale*/)
     // no-op: Only one language is supported and it is hard-coded.
 }
 
-/**
- * \brief Searches for a movie
- * \param searchStr The Movie name/search string
- * \see VideoBuster::searchFinished
- */
-void VideoBuster::search(QString searchStr)
+void VideoBuster::loadData(QHash<MovieScraper*, mediaelch::scraper::MovieIdentifier> ids,
+    Movie* movie,
+    QSet<MovieScraperInfo> infos)
 {
-    m_api.searchForMovie(searchStr, [this](QString data, ScraperError error) {
-        if (error.hasError()) {
-            qWarning() << "[VideoBuster] Search Error" << error.message << "|" << error.technical;
-            emit searchDone({}, error);
-
-        } else {
-            data = replaceEntities(data);
-            emit searchDone(parseSearch(data), {});
-        }
-    });
-}
-
-/**
- * \brief Parses the search results
- * \param html Downloaded HTML data
- * \return List of search results
- */
-QVector<ScraperSearchResult> VideoBuster::parseSearch(QString html)
-{
-    QVector<ScraperSearchResult> results;
-    int pos = 0;
-    QRegExp rx("<div class=\"infos\"><a href=\"([^\"]*)\" class=\"title\">([^<]*)</a>");
-    rx.setMinimal(true);
-    while ((pos = rx.indexIn(html, pos)) != -1) {
-        ScraperSearchResult result;
-        result.name = rx.cap(2);
-        result.id = rx.cap(1);
-        results.append(result);
-        pos += rx.matchedLength();
-    }
-    return results;
-}
-
-/**
- * \brief Starts network requests to download infos from VideoBuster
- * \param ids VideoBuster movie ID
- * \param movie Movie object
- * \param infos List of infos to load
- * \see VideoBuster::loadFinished
- */
-void VideoBuster::loadData(QHash<MovieScraper*, QString> ids, Movie* movie, QSet<MovieScraperInfo> infos)
-{
-    m_api.loadMovie(ids.values().first(), [movie, infos, this](QString data, ScraperError error) {
+    m_api.loadMovie(ids.values().first().str(), [movie, infos, this](QString data, ScraperError error) {
         movie->clear(infos);
 
         if (!error.hasError()) {
@@ -132,16 +86,10 @@ void VideoBuster::loadData(QHash<MovieScraper*, QString> ids, Movie* movie, QSet
             // TODO
             showNetworkError(error);
         }
-        movie->controller()->scraperLoadDone(this);
+        movie->controller()->scraperLoadDone(this, error);
     });
 }
 
-/**
- * \brief Parses HTML data and assigns it to the given movie object
- * \param html HTML data
- * \param movie Movie object
- * \param infos List of infos to load
- */
 void VideoBuster::parseAndAssignInfos(const QString& html, Movie* movie, QSet<MovieScraperInfo> infos)
 {
     qDebug() << "[VideoBuster] Parse and assign movie details";
@@ -331,17 +279,11 @@ bool VideoBuster::hasSettings() const
     return false;
 }
 
-/**
- * \brief Loads scrapers settings
- */
 void VideoBuster::loadSettings(ScraperSettings& settings)
 {
     Q_UNUSED(settings);
 }
 
-/**
- * \brief Saves scrapers settings
- */
 void VideoBuster::saveSettings(ScraperSettings& settings)
 {
     Q_UNUSED(settings);

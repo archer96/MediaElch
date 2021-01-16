@@ -18,6 +18,7 @@ add_library(
   concert/tmdb/TmdbConcertSearchJob.cpp
   movie/MovieIdentifier.cpp
   movie/MovieScraper.cpp
+  movie/MovieSearchJob.cpp
   music/TvTunes.cpp
   music/AllMusic.cpp
   music/UniversalMusicScraper.cpp
@@ -40,5 +41,6 @@ add_library(
 
 target_link_libraries(
   mediaelch_scrapers PRIVATE Qt5::Sql Qt5::Widgets Qt5::Multimedia Qt5::Xml
+                             Qt5::Network
 )
 mediaelch_post_target_defaults(mediaelch_scrapers)

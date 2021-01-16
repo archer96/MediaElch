@@ -23,9 +23,12 @@ public:
     void initialize() override;
     bool isInitialized() const override;
 
+    ELCH_NODISCARD MovieSearchJob* search(MovieSearchJob::Config config) override;
+
 public:
-    void search(QString searchStr) override;
-    void loadData(QHash<MovieScraper*, QString> ids, Movie* movie, QSet<MovieScraperInfo> infos) override;
+    void loadData(QHash<MovieScraper*, mediaelch::scraper::MovieIdentifier> ids,
+        Movie* movie,
+        QSet<MovieScraperInfo> infos) override;
     bool hasSettings() const override;
     void loadSettings(ScraperSettings& settings) override;
     void saveSettings(ScraperSettings& settings) override;
@@ -34,13 +37,12 @@ public:
 
     void changeLanguage(mediaelch::Locale locale) override;
     QVector<MovieScraper*> scrapersNeedSearch(QSet<MovieScraperInfo> infos,
-        QHash<MovieScraper*, QString> alreadyLoadedIds);
+        QHash<MovieScraper*, MovieIdentifier> alreadyLoadedIds);
     MovieScraper* titleScraper();
     QWidget* settingsWidget() override;
     MovieScraper* scraperForInfo(MovieScraperInfo info);
 
 private slots:
-    void onTitleSearchDone(QVector<ScraperSearchResult> results, ScraperError error);
     void onLoadTmdbFinished();
 
 private:
@@ -53,11 +55,11 @@ private:
     QVector<ImageProvider*> imageProvidersForInfos(QSet<MovieScraperInfo> infos);
 
     QSet<MovieScraperInfo> infosForScraper(MovieScraper* scraper, QSet<MovieScraperInfo> selectedInfos);
-    void loadAllData(QHash<MovieScraper*, QString> ids,
+    void loadAllData(QHash<MovieScraper*, mediaelch::scraper::MovieIdentifier> ids,
         Movie* movie,
-        QSet<MovieScraperInfo> infos,
-        QString tmdbId,
-        QString imdbId);
+        const QSet<MovieScraperInfo>& infos,
+        TmdbId tmdbId,
+        ImdbId imdbId);
     mediaelch::network::NetworkManager* network();
 };
 

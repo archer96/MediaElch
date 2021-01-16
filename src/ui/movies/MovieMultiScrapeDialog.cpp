@@ -102,10 +102,6 @@ int MovieMultiScrapeDialog::exec()
 
 void MovieMultiScrapeDialog::accept()
 {
-    for (auto* scraper : Manager::instance()->scrapers().movieScrapers()) {
-        disconnect(
-            scraper, &mediaelch::scraper::MovieScraper::searchDone, this, &MovieMultiScrapeDialog::onSearchFinished);
-    }
     m_executed = false;
     Settings::instance()->setMultiScrapeOnlyWithId(ui->chkOnlyImdb->isChecked());
     Settings::instance()->setMultiScrapeSaveEach(ui->chkAutoSave->isChecked());
@@ -115,10 +111,6 @@ void MovieMultiScrapeDialog::accept()
 
 void MovieMultiScrapeDialog::reject()
 {
-    for (auto* scraper : Manager::instance()->scrapers().movieScrapers()) {
-        disconnect(
-            scraper, &mediaelch::scraper::MovieScraper::searchDone, this, &MovieMultiScrapeDialog::onSearchFinished);
-    }
     m_executed = false;
     if (m_currentMovie != nullptr) {
         m_queue.clear();
@@ -139,10 +131,6 @@ void MovieMultiScrapeDialog::onStartScraping()
 {
     using namespace mediaelch::scraper;
 
-    for (auto* scraper : Manager::instance()->scrapers().movieScrapers()) {
-        disconnect(scraper, &MovieScraper::searchDone, this, &MovieMultiScrapeDialog::onSearchFinished);
-    }
-
     ui->groupBox->setEnabled(false);
     ui->comboScraper->setEnabled(false);
     ui->btnStartScraping->setEnabled(false);
@@ -151,18 +139,13 @@ void MovieMultiScrapeDialog::onStartScraping()
 
     m_scraperInterface = Manager::instance()->scrapers().movieScraper(
         ui->comboScraper->itemData(ui->comboScraper->currentIndex()).toString());
+
     if (m_scraperInterface == nullptr) {
         return;
     }
 
     m_isTmdb = m_scraperInterface->meta().identifier == TmdbMovie::ID;
     m_isImdb = m_scraperInterface->meta().identifier == ImdbMovie::ID;
-
-    connect(m_scraperInterface,
-        &MovieScraper::searchDone,
-        this,
-        &MovieMultiScrapeDialog::onSearchFinished,
-        Qt::UniqueConnection);
 
     m_queue.append(m_movies.toList());
 
@@ -241,77 +224,102 @@ void MovieMultiScrapeDialog::scrapeNext()
 
     if (m_isImdb && m_currentMovie->imdbId().isValid()) {
         loadMovieData(m_currentMovie, m_currentMovie->imdbId());
-    } else if (m_isTmdb && m_currentMovie->tmdbId().isValid()) {
-        loadMovieData(m_currentMovie, m_currentMovie->tmdbId());
-    } else if (m_isTmdb && m_currentMovie->imdbId().isValid()) {
-        loadMovieData(m_currentMovie, m_currentMovie->imdbId());
-    } else if (m_scraperInterface->meta().identifier == CustomMovieScraper::ID) {
-        if ((CustomMovieScraper::instance()->titleScraper()->meta().identifier == ImdbMovie::ID
-                || CustomMovieScraper::instance()->titleScraper()->meta().identifier == TmdbMovie::ID)
-            && m_currentMovie->imdbId().isValid()) {
-            m_scraperInterface->search(m_currentMovie->imdbId().toString());
-        } else if (CustomMovieScraper::instance()->titleScraper()->meta().identifier == TmdbMovie::ID
-                   && m_currentMovie->tmdbId().isValid()) {
-            m_scraperInterface->search(m_currentMovie->tmdbId().withPrefix());
-        } else {
-            m_scraperInterface->search(m_currentMovie->name());
-        }
-    } else {
-        m_scraperInterface->search(m_currentMovie->name());
+        return;
     }
+    if (m_isTmdb && m_currentMovie->tmdbId().isValid()) {
+        loadMovieData(m_currentMovie, m_currentMovie->tmdbId());
+        return;
+    }
+    if (m_isTmdb && m_currentMovie->imdbId().isValid()) {
+        loadMovieData(m_currentMovie, m_currentMovie->imdbId());
+        return;
+    }
+    MovieSearchJob::Config config;
+    config.includeAdult = Settings::instance()->showAdultScrapers();
+    // FIXME config.locale =
+    config.query = m_currentMovie->name();
+
+    const QString& customTitleScraperID = CustomMovieScraper::instance()->titleScraper()->meta().identifier;
+    if (m_scraperInterface->meta().identifier == CustomMovieScraper::ID) {
+        if ((customTitleScraperID == ImdbMovie::ID || customTitleScraperID == TmdbMovie::ID)
+            && m_currentMovie->imdbId().isValid()) {
+            config.query = m_currentMovie->imdbId().toString();
+
+        } else if (customTitleScraperID == TmdbMovie::ID && m_currentMovie->tmdbId().isValid()) {
+            config.query = m_currentMovie->tmdbId().withPrefix();
+        }
+    }
+
+    auto* searchJob = m_scraperInterface->search(config);
+    connect(searchJob, &MovieSearchJob::sigFinished, this, &MovieMultiScrapeDialog::onSearchFinished);
+    searchJob->execute();
 }
 
 void MovieMultiScrapeDialog::loadMovieData(Movie* movie, ImdbId id)
 {
-    QHash<mediaelch::scraper::MovieScraper*, QString> ids;
-    ids.insert(nullptr, id.toString());
+    using namespace mediaelch::scraper;
+    QHash<MovieScraper*, MovieIdentifier> ids;
+    ids.insert(nullptr, MovieIdentifier(id.toString()));
     movie->controller()->loadData(ids, m_scraperInterface, m_infosToLoad);
 }
 
 void MovieMultiScrapeDialog::loadMovieData(Movie* movie, TmdbId id)
 {
-    QHash<mediaelch::scraper::MovieScraper*, QString> ids;
-    ids.insert(nullptr, id.toString());
+    using namespace mediaelch::scraper;
+    QHash<MovieScraper*, MovieIdentifier> ids;
+    ids.insert(nullptr, MovieIdentifier(id.toString()));
     movie->controller()->loadData(ids, m_scraperInterface, m_infosToLoad);
 }
 
-void MovieMultiScrapeDialog::onSearchFinished(QVector<ScraperSearchResult> results)
+void MovieMultiScrapeDialog::onSearchFinished(mediaelch::scraper::MovieSearchJob* searchJob)
 {
     using namespace mediaelch::scraper;
+
+    auto dls = makeDeleteLaterScope(searchJob);
 
     if (!isExecuted()) {
         return;
     }
-    if (results.isEmpty()) {
+
+    if (searchJob->hasError()) {
+        // FIXME
+    }
+
+    if (searchJob->results().isEmpty()) {
         scrapeNext();
         return;
     }
 
     if (m_scraperInterface->meta().identifier == CustomMovieScraper::ID) {
         auto* scraper = dynamic_cast<MovieScraper*>(QObject::sender());
-        m_currentIds.insert(scraper, results.first().id);
-        QVector<MovieScraper*> searchScrapers =
+        m_currentIds.insert(scraper, searchJob->results().first().identifier);
+        const QVector<MovieScraper*>& searchScrapers =
             CustomMovieScraper::instance()->scrapersNeedSearch(m_infosToLoad, m_currentIds);
+
         if (!searchScrapers.isEmpty()) {
-            connect(searchScrapers.first(),
-                &MovieScraper::searchDone,
-                this,
-                &MovieMultiScrapeDialog::onSearchFinished,
-                Qt::UniqueConnection);
+            MovieSearchJob::Config config;
+            // FIXME config.locale = TODO
+            config.includeAdult = Settings::instance()->showAdultScrapers();
+            config.query = m_currentMovie->name();
+
             if ((searchScrapers.first()->meta().identifier == TmdbMovie::ID
                     || searchScrapers.first()->meta().identifier == ImdbMovie::ID)
                 && m_currentMovie->imdbId().isValid()) {
-                searchScrapers.first()->search(m_currentMovie->imdbId().toString());
+                config.query = m_currentMovie->imdbId().toString();
+
             } else if (searchScrapers.first()->meta().identifier == TmdbMovie::ID
                        && m_currentMovie->tmdbId().isValid()) {
-                searchScrapers.first()->search(m_currentMovie->tmdbId().toString());
-            } else {
-                searchScrapers.first()->search(m_currentMovie->name());
+                config.query = m_currentMovie->tmdbId().toString();
             }
+
+            auto* searchJob = searchScrapers.first()->search(config);
+            connect(searchJob, &MovieSearchJob::sigFinished, this, &MovieMultiScrapeDialog::onSearchFinished);
+            searchJob->execute();
+
             return;
         }
     } else {
-        m_currentIds.insert(m_scraperInterface, results.first().id);
+        m_currentIds.insert(m_scraperInterface, searchJob->results().first().identifier);
     }
 
     m_currentMovie->controller()->loadData(m_currentIds, m_scraperInterface, m_infosToLoad);

@@ -5,6 +5,7 @@
 #include <QJsonValue>
 
 #include "data/Storage.h"
+#include "globals/Manager.h"
 #include "globals/ScraperManager.h"
 #include "scrapers/movie/imdb/ImdbMovie.h"
 #include "scrapers/movie/tmdb/TmdbMovie.h"
@@ -30,10 +31,6 @@ CustomMovieScraper::CustomMovieScraper(QObject* parent) : MovieScraper(parent)
     m_meta.isAdult = false;
 
     m_scrapers = mediaelch::ScraperManager::constructNativeScrapers(this);
-
-    for (MovieScraper* scraper : m_scrapers) {
-        connect(scraper, &MovieScraper::searchDone, this, &CustomMovieScraper::onTitleSearchDone);
-    }
 }
 
 mediaelch::network::NetworkManager* CustomMovieScraper::network()
@@ -43,10 +40,7 @@ mediaelch::network::NetworkManager* CustomMovieScraper::network()
 
 CustomMovieScraper* CustomMovieScraper::instance(QObject* parent)
 {
-    static CustomMovieScraper* m_instance = nullptr;
-    if (m_instance == nullptr) {
-        m_instance = new CustomMovieScraper(parent);
-    }
+    static CustomMovieScraper* m_instance = new CustomMovieScraper(parent);
     return m_instance;
 }
 
@@ -66,43 +60,18 @@ bool CustomMovieScraper::isInitialized() const
     return true;
 }
 
-void CustomMovieScraper::search(QString searchStr)
+MovieSearchJob* CustomMovieScraper::search(MovieSearchJob::Config config)
 {
     auto* scraper = scraperForInfo(MovieScraperInfo::Title);
     if (scraper == nullptr) {
-        // \todo Better error handling. Currently there is no way to tell the scraper window that something has failed
-        qWarning() << "[CustomMovieScraper] Abort search: no valid scraper found for title information";
-        ScraperSearchResult errorResult;
-        errorResult.name =
-            tr("The custom movie scraper is not configured correctly. Please go to settings and reconfigure it.");
-        emit searchDone({errorResult}, {});
-        return;
+        // always use TMDb just in case
+        scraper = Manager::instance()->scrapers().movieScraper(TmdbMovie::ID);
     }
-    scraper->search(searchStr);
-}
-
-void CustomMovieScraper::onTitleSearchDone(QVector<ScraperSearchResult> results, ScraperError error)
-{
-    if (error.hasError()) {
-        emit searchDone({}, error);
-        return;
-    }
-
-    auto* scraper = dynamic_cast<MovieScraper*>(QObject::sender());
-    if (scraper == nullptr) {
-        qCritical() << "[CustomMovieScraper] onTitleSearchDone: dynamic_cast failed";
-        emit searchDone(
-            {}, {ScraperError::Type::InternalError, tr("Internal Error: Please report!"), "nullptr dereference"});
-        return;
-    }
-
-    if (scraper == scraperForInfo(MovieScraperInfo::Title)) {
-        emit searchDone(results, error);
-    }
+    return scraper->search(std::move(config));
 }
 
 QVector<MovieScraper*> CustomMovieScraper::scrapersNeedSearch(QSet<MovieScraperInfo> infos,
-    QHash<MovieScraper*, QString> alreadyLoadedIds)
+    QHash<MovieScraper*, MovieIdentifier> alreadyLoadedIds)
 {
     QVector<MovieScraper*> scrapers;
     MovieScraper* titleScraper = scraperForInfo(MovieScraperInfo::Title);
@@ -111,7 +80,7 @@ QVector<MovieScraper*> CustomMovieScraper::scrapersNeedSearch(QSet<MovieScraperI
     }
 
     bool imdbIdAvailable = false;
-    QHashIterator<MovieScraper*, QString> it(alreadyLoadedIds);
+    QHashIterator<MovieScraper*, MovieIdentifier> it(alreadyLoadedIds);
     while (it.hasNext()) {
         it.next();
         if (it.key()->meta().identifier == ImdbMovie::ID || it.key()->meta().identifier == TmdbMovie::ID) {
@@ -166,21 +135,24 @@ QVector<MovieScraper*> CustomMovieScraper::scrapersNeedSearch(QSet<MovieScraperI
     return scrapers;
 }
 
-void CustomMovieScraper::loadData(QHash<MovieScraper*, QString> ids, Movie* movie, QSet<MovieScraperInfo> infos)
+void CustomMovieScraper::loadData(QHash<MovieScraper*, mediaelch::scraper::MovieIdentifier> ids,
+    Movie* movie,
+    QSet<MovieScraperInfo> infos)
 {
     movie->clear(infos);
 
-    QString tmdbId;
-    QString imdbId;
-    QHashIterator<MovieScraper*, QString> it(ids);
+    TmdbId tmdbId;
+    ImdbId imdbId;
+    QHashIterator<MovieScraper*, MovieIdentifier> it(ids);
     while (it.hasNext()) {
         it.next();
         if (it.key()->meta().identifier == TmdbMovie::ID) {
-            movie->setTmdbId(TmdbId(it.value()));
-            tmdbId = it.value();
+            tmdbId = TmdbId(it.value().str());
+            movie->setTmdbId(tmdbId);
+
         } else if (it.key()->meta().identifier == ImdbMovie::ID) {
-            movie->setImdbId(ImdbId(it.value()));
-            imdbId = it.value();
+            imdbId = ImdbId(it.value().str());
+            movie->setImdbId(imdbId);
         }
     }
 
@@ -196,21 +168,26 @@ void CustomMovieScraper::loadData(QHash<MovieScraper*, QString> ids, Movie* movi
         }
     }
 
-    if (needImdbId && imdbId.isEmpty()) {
-        if (!TmdbId(tmdbId).isValid()) {
-            qWarning() << "[CustomMovieScraper] Invalid id: can't scrape movie with tmdb id:" << tmdbId;
-            movie->controller()->scraperLoadDone(this);
+    if (needImdbId && !imdbId.isValid()) {
+        if (!tmdbId.isValid()) {
+            qWarning() << "[CustomMovieScraper] Invalid id: can't scrape movie with TMDb id:" << tmdbId;
+            ScraperError error;
+            error.error = ScraperError::Type::ConfigError;
+            error.message = tr("TMDb ID is invalid. Cannot scrape movie.");
+            error.technical = QStringLiteral("Invalid id: can't scrape movie with TMDb id: %1").arg(tmdbId.toString());
+            movie->controller()->scraperLoadDone(this, error);
             return;
         }
         QNetworkRequest request;
         request.setRawHeader("Accept", "application/json");
-        QUrl url(QString("https://api.themoviedb.org/3/movie/%1?api_key=%2").arg(tmdbId).arg(TmdbMovie::apiKey()));
+        QUrl url(
+            QString("https://api.themoviedb.org/3/movie/%1?api_key=%2").arg(tmdbId.toString()).arg(TmdbApi::apiKey()));
         request.setUrl(url);
         QNetworkReply* reply = network()->getWithWatcher(request);
         reply->setProperty("movie", Storage::toVariant(reply, movie));
         reply->setProperty("infosToLoad", Storage::toVariant(reply, infos));
         reply->setProperty("ids", Storage::toVariant(reply, ids));
-        reply->setProperty("tmdbId", tmdbId);
+        reply->setProperty("tmdbId", tmdbId.toString());
         connect(reply, &QNetworkReply::finished, this, &CustomMovieScraper::onLoadTmdbFinished);
         return;
     }
@@ -222,11 +199,11 @@ void CustomMovieScraper::onLoadTmdbFinished()
     auto* reply = dynamic_cast<QNetworkReply*>(QObject::sender());
     Movie* movie = reply->property("movie").value<Storage*>()->movie();
     QSet<MovieScraperInfo> infos = reply->property("infosToLoad").value<Storage*>()->movieInfosToLoad();
-    QHash<MovieScraper*, QString> ids = reply->property("ids").value<Storage*>()->ids();
-    QString tmdbId = reply->property("tmdbId").toString();
+    QHash<MovieScraper*, mediaelch::scraper::MovieIdentifier> ids = reply->property("ids").value<Storage*>()->ids();
+    TmdbId tmdbId(reply->property("tmdbId").toString());
 
     if (reply->error() == QNetworkReply::NoError) {
-        QString imdbId;
+        ImdbId imdbId;
         QJsonParseError parseError{};
         const auto parsedJson = QJsonDocument::fromJson(reply->readAll(), &parseError).object();
         reply->deleteLater();
@@ -235,30 +212,28 @@ void CustomMovieScraper::onLoadTmdbFinished()
             return;
         }
         if (!parsedJson.value("imdb_id").toString().isEmpty()) {
-            imdbId = parsedJson.value("imdb_id").toString();
+            imdbId = ImdbId(parsedJson.value("imdb_id").toString());
 
         } else {
             qWarning() << "No IMDB id available";
-            movie->controller()->scraperLoadDone(this);
+            movie->controller()->scraperLoadDone(this, {}); // silent error
             return;
         }
         loadAllData(ids, movie, infos, tmdbId, imdbId);
 
     } else {
-        showNetworkError(*reply);
-        qWarning() << "Network Error" << reply->errorString();
-        movie->controller()->scraperLoadDone(this);
+        movie->controller()->scraperLoadDone(this, mediaelch::replyToScraperError(*reply));
         reply->deleteLater();
     }
 }
 
-void CustomMovieScraper::loadAllData(QHash<MovieScraper*, QString> ids,
+void CustomMovieScraper::loadAllData(QHash<MovieScraper*, mediaelch::scraper::MovieIdentifier> ids,
     Movie* movie,
-    QSet<MovieScraperInfo> infos,
-    QString tmdbId,
-    QString imdbId)
+    const QSet<MovieScraperInfo>& infos,
+    TmdbId tmdbId,
+    ImdbId imdbId)
 {
-    QHash<MovieScraper*, QString> scrapersWithIds;
+    QHash<MovieScraper*, mediaelch::scraper::MovieIdentifier> scrapersWithIds;
     for (const auto info : infos) {
         auto* scraper = scraperForInfo(info);
         if (scraper == nullptr) {
@@ -268,13 +243,15 @@ void CustomMovieScraper::loadAllData(QHash<MovieScraper*, QString> ids,
         if (scrapersWithIds.contains(scraper)) {
             continue;
         }
+        QString id;
         if (scraper->meta().identifier == TmdbMovie::ID) {
-            scrapersWithIds.insert(scraper, tmdbId.isEmpty() ? imdbId : tmdbId);
+            id = !tmdbId.isValid() ? imdbId.toString() : tmdbId.toString();
         } else if (scraper->meta().identifier == ImdbMovie::ID) {
-            scrapersWithIds.insert(scraper, imdbId);
+            id = imdbId.toString();
         } else {
-            scrapersWithIds.insert(scraper, ids.value(scraper));
+            id = ids.value(scraper).str();
         }
+        scrapersWithIds.insert(scraper, MovieIdentifier(id));
     }
 
     int loads = scrapersWithIds.count();
@@ -302,14 +279,14 @@ void CustomMovieScraper::loadAllData(QHash<MovieScraper*, QString> ids,
         movie->controller()->setForceFanartLogo(true);
     }
 
-    QHashIterator<MovieScraper*, QString> itS(scrapersWithIds);
+    QHashIterator<MovieScraper*, MovieIdentifier> itS(scrapersWithIds);
     while (itS.hasNext()) {
         itS.next();
         QSet<MovieScraperInfo> infosToLoad = infosForScraper(itS.key(), infos);
         if (infosToLoad.isEmpty()) {
             continue;
         }
-        QHash<MovieScraper*, QString> subIds;
+        QHash<MovieScraper*, mediaelch::scraper::MovieIdentifier> subIds;
         subIds.insert(nullptr, itS.value());
         itS.key()->loadData(subIds, movie, infosToLoad);
     }

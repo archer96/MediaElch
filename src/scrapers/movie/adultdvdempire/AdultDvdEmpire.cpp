@@ -6,6 +6,7 @@
 
 #include "data/Storage.h"
 #include "network/NetworkRequest.h"
+#include "scrapers/movie/adultdvdempire/AdultDvdEmpireSearchJob.h"
 #include "settings/Settings.h"
 
 namespace mediaelch {
@@ -52,6 +53,11 @@ bool AdultDvdEmpire::isInitialized() const
     return true;
 }
 
+MovieSearchJob* AdultDvdEmpire::search(MovieSearchJob::Config config)
+{
+    return new AdultDvdEmpireSearchJob(m_api, std::move(config), this);
+}
+
 QSet<MovieScraperInfo> AdultDvdEmpire::scraperNativelySupports()
 {
     return m_meta.supportedDetails;
@@ -67,54 +73,13 @@ mediaelch::network::NetworkManager* AdultDvdEmpire::network()
     return &m_network;
 }
 
-void AdultDvdEmpire::search(QString searchStr)
-{
-    m_api.searchForMovie(searchStr, [this](QString data, ScraperError error) {
-        if (error.hasError()) {
-            qWarning() << "[AdultDvdEmpire] Search Error" << error.message << "|" << error.technical;
-            emit searchDone({}, error);
-
-        } else {
-            emit searchDone(parseSearch(data), {});
-        }
-    });
-}
-
-QVector<ScraperSearchResult> AdultDvdEmpire::parseSearch(QString html)
-{
-    QTextDocument doc;
-    QVector<ScraperSearchResult> results;
-
-    QRegularExpression rx(R"re(<a href="([^"]*)"[\n\t\s]*title="([^"]*)" Category="List Page" Label="Title">)re");
-    rx.setPatternOptions(QRegularExpression::InvertedGreedinessOption);
-
-    QRegularExpressionMatchIterator matches = rx.globalMatch(html);
-    while (matches.hasNext()) {
-        QRegularExpressionMatch match = matches.next();
-        // DVDs vs VideoOnDemand (VOD)
-        QString type;
-        if (match.captured(1).endsWith("-movies.html")) {
-            type = "[DVD] ";
-        } else if (match.captured(1).endsWith("-blu-ray.html")) {
-            type = "[BluRay] ";
-        } else if (match.captured(1).endsWith("-videos.html")) {
-            type = "[VOD] ";
-        }
-        doc.setHtml(match.captured(2).trimmed());
-        ScraperSearchResult result;
-        result.id = match.captured(1);
-        result.name = type + doc.toPlainText();
-        results << result;
-    }
-
-    return results;
-}
-
-void AdultDvdEmpire::loadData(QHash<MovieScraper*, QString> ids, Movie* movie, QSet<MovieScraperInfo> infos)
+void AdultDvdEmpire::loadData(QHash<MovieScraper*, mediaelch::scraper::MovieIdentifier> ids,
+    Movie* movie,
+    QSet<MovieScraperInfo> infos)
 {
     movie->clear(infos);
 
-    m_api.loadMovie(ids.values().first(), [movie, infos, this](QString data, ScraperError error) {
+    m_api.loadMovie(ids.values().first().str(), [movie, infos, this](QString data, ScraperError error) {
         if (!error.hasError()) {
             parseAndAssignInfos(data, movie, infos);
 
@@ -123,7 +88,7 @@ void AdultDvdEmpire::loadData(QHash<MovieScraper*, QString> ids, Movie* movie, Q
             showNetworkError(error);
         }
 
-        movie->controller()->scraperLoadDone(this);
+        movie->controller()->scraperLoadDone(this, error);
     });
 }
 

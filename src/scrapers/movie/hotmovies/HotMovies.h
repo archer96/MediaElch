@@ -24,9 +24,12 @@ public:
     void initialize() override;
     bool isInitialized() const override;
 
+    ELCH_NODISCARD MovieSearchJob* search(MovieSearchJob::Config config) override;
+
 public:
-    void search(QString searchStr) override;
-    void loadData(QHash<MovieScraper*, QString> ids, Movie* movie, QSet<MovieScraperInfo> infos) override;
+    void loadData(QHash<MovieScraper*, mediaelch::scraper::MovieIdentifier> ids,
+        Movie* movie,
+        QSet<MovieScraperInfo> infos) override;
     bool hasSettings() const override;
     void loadSettings(ScraperSettings& settings) override;
     void saveSettings(ScraperSettings& settings) override;
@@ -43,7 +46,6 @@ private:
 
 private:
     mediaelch::network::NetworkManager* network();
-    QVector<ScraperSearchResult> parseSearch(QString html);
     void parseAndAssignInfos(QString html, Movie* movie, QSet<MovieScraperInfo> infos);
 };
 
