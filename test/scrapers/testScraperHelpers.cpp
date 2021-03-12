@@ -69,7 +69,7 @@ searchMovieScraperSync(mediaelch::scraper::MovieSearchJob* searchJob, bool mayEr
     if (!mayError) {
         CAPTURE(error.message);
         CAPTURE(error.technical);
-        CHECK(error.error == ScraperError::Type::NoError);
+        REQUIRE(error.error == ScraperError::Type::NoError);
     }
     return {results, error};
 }
@@ -85,6 +85,6 @@ void scrapeTvScraperSync(mediaelch::scraper::ShowScrapeJob* scrapeJob, bool mayE
     if (!mayError) {
         CAPTURE(scrapeJob->error().message);
         CAPTURE(scrapeJob->error().technical);
-        CHECK(!scrapeJob->hasError());
+        REQUIRE(!scrapeJob->hasError());
     }
 }

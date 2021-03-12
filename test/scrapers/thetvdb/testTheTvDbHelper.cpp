@@ -16,7 +16,10 @@ void waitForTheTvDbInitialized()
 {
     if (!getTheTvDbApi().isInitialized()) {
         QEventLoop loop;
-        QEventLoop::connect(&getTheTvDbApi(), &TheTvDbApi::initialized, [&]() { loop.quit(); });
+        QEventLoop::connect(&getTheTvDbApi(), &TheTvDbApi::initialized, [&](bool wasSuccessful) {
+            REQUIRE(wasSuccessful);
+            loop.quit();
+        });
         getTheTvDbApi().initialize();
         loop.exec();
     }

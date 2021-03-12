@@ -75,7 +75,7 @@ public:
     /// \brief An ApiToken represents an API token from TheTvDb.
     ///
     /// These tokens are JSON web tokens and are valid for about 24h
-    /// (according to https://api.thetvdb.com/swagger).
+    /// (according to https://app.swaggerhub.com/apis-docs/thetvdb/tvdb-api_v_4/
     class ApiToken
     {
     public:

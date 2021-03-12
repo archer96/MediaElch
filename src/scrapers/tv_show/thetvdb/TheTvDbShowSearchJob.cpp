@@ -43,7 +43,7 @@ QVector<ShowSearchJob::Result> TheTvDbShowSearchJob::parseSearch(const QJsonDocu
     QVector<ShowSearchJob::Result> results;
     QJsonArray jsonResults = parsedJson.value("data").isArray() ? parsedJson.value("data").toArray()
                                                                 : QJsonArray{parsedJson.value("data").toObject()};
-    for (const QJsonValueRef showObjectValue : jsonResults) {
+    for (const QJsonValue& showObjectValue : asConst(jsonResults)) {
         const auto result = parseSingleSearchResult(showObjectValue.toObject());
         if (!result.title.isEmpty()) {
             results.append(result);
@@ -56,12 +56,11 @@ QVector<ShowSearchJob::Result> TheTvDbShowSearchJob::parseSearch(const QJsonDocu
 ShowSearchJob::Result TheTvDbShowSearchJob::parseSingleSearchResult(const QJsonObject& showObject)
 {
     ShowSearchJob::Result result;
-    result.title = showObject.value("seriesName").toString();
-    result.identifier = ShowIdentifier(QString::number(showObject.value("id").toInt()));
-    if (showObject.value("firstAired").isString()) {
-        QString str = showObject.value("firstAired").toString();
-        // TheTVDb month and day don't have a leading zero
-        result.released = QDate::fromString(str, "yyyy-M-d");
+    result.title = showObject.value("name").toString();
+    result.identifier = ShowIdentifier(QString::number(showObject.value("tvdb_id").toInt()));
+    if (showObject.value("year").isString()) {
+        QString str = showObject.value("year").toString();
+        result.released = QDate::fromString(str, "yyyy");
     }
     return result;
 }

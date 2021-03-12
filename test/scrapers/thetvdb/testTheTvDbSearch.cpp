@@ -18,10 +18,22 @@ TEST_CASE("TheTvDb returns valid search results", "[tv][TheTvDb][search]")
         auto* searchJob = new TheTvDbShowSearchJob(getTheTvDbApi(), config);
         const auto scraperResults = searchTvScraperSync(searchJob).first;
 
-        REQUIRE(scraperResults.length() >= 10);
+        REQUIRE(scraperResults.length() >= 8);
         CHECK(scraperResults[0].title == "The Simpsons");
         CHECK(scraperResults[0].identifier.str() == "71663");
         CHECK(scraperResults[0].released == QDate(1989, 12, 17));
+    }
+
+    SECTION("Search by TV show name returns correct results")
+    {
+        ShowSearchJob::Config config{"Die Simpsons", Locale("de-DE")};
+        auto* searchJob = new TheTvDbShowSearchJob(getTheTvDbApi(), config);
+        const auto scraperResults = searchTvScraperSync(searchJob).first;
+
+        REQUIRE(scraperResults.length() >= 8);
+        CHECK(scraperResults[0].title == "Die Simpsons");
+        CHECK(scraperResults[0].identifier.str() == "71663");
+        CHECK(scraperResults[0].released == QDate(1987, 4, 19));
     }
 
     SECTION("Search by TV show name in other languages returns correct results")
@@ -33,7 +45,7 @@ TEST_CASE("TheTvDb returns valid search results", "[tv][TheTvDb][search]")
         REQUIRE(scraperResults.length() >= 1);
         CHECK(scraperResults[0].title == "Hoży doktorzy");
         CHECK(scraperResults[0].identifier.str() == "76156");
-        CHECK(scraperResults[0].released == QDate(2001, 10, 2));
+        CHECK(scraperResults[0].released == QDate(2001, 1, 1)); // only year is available
     }
 
     SECTION("Search by TV show name returns 0 results for unknown shows")

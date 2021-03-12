@@ -21,40 +21,51 @@ TheTvDbApi::TheTvDbApi(QObject* parent) : QObject(parent)
 
 void TheTvDbApi::initialize()
 {
-    const QJsonObject body{{"apikey", "A0BB9A0F6762942B"}};
-    QNetworkRequest request = network::jsonRequestWithDefaults(makeFullUrl("/login"));
+    const QJsonObject body{{"apikey", "<KEY>"}};
 
+    QNetworkRequest request = mediaelch::network::jsonRequestWithDefaults(makeFullUrl("/login"));
     QNetworkReply* reply = m_network.postWithWatcher(request, QJsonDocument(body).toJson());
 
-    QObject::connect(reply, &QNetworkReply::finished, this, [reply, this]() {
-        QJsonDocument parsedJson;
+    connect(reply, &QNetworkReply::finished, this, [reply, this]() {
+        auto dls = makeDeleteLaterScope(reply);
 
+        QString data;
         if (reply->error() == QNetworkReply::NoError) {
-            QJsonParseError parseError{};
-            parsedJson = QJsonDocument::fromJson(reply->readAll(), &parseError);
-
-            if (parseError.error != QJsonParseError::NoError) {
-                qCWarning(generic) << "[JsonPostRequest] Error while parsing JSON";
-            }
+            data = QString::fromUtf8(reply->readAll());
 
         } else {
-            qCWarning(generic) << "[JsonPostRequest] Network Error:" << reply->errorString();
-        }
-
-        reply->deleteLater();
-
-        if (parsedJson.isEmpty()) {
+            qWarning() << "[TheTvDbApi] Network Error:" << reply->errorString() << "for URL" << reply->url();
             emit initialized(false);
             return;
         }
 
-        qCDebug(generic) << "[TheTvDbApi] Received JSON web token";
-
-        ApiToken token(parsedJson.object().value("token").toString());
-        if (token.isValid()) {
-            m_token = token;
+        if (data.isEmpty()) {
+            qCritical() << "[TheTvDbApi] Received JSON web token is empty!";
+            emit initialized(false);
+            return;
         }
-        emit initialized(token.isValid());
+
+        QJsonParseError parseError{};
+        QJsonDocument json = QJsonDocument::fromJson(data.toUtf8(), &parseError);
+        if (parseError.error != QJsonParseError::NoError) {
+            qCritical() << "[TheTvDbApi] Received JSON web token could not be parsed!";
+            emit initialized(false);
+            return;
+        }
+
+        ApiToken token(json.object().value("data").toObject().value("token").toString());
+        if (token.isValid()) {
+            m_token = std::move(token);
+            qInfo() << "[TheTvDbApi] Received JSON web token is valid";
+            emit initialized(m_token.isValid());
+            return;
+
+        } else {
+            qCritical() << "[TheTvDbApi] Received JSON web token not available in JSON response! Status:"
+                        << json.object().value("status");
+        }
+
+
     });
 }
 
@@ -174,12 +185,12 @@ void TheTvDbApi::addHeadersToRequest(const Locale& locale, QNetworkRequest& requ
 
 QUrl TheTvDbApi::makeFullUrl(const QString& suffix)
 {
-    return QUrl("https://api.thetvdb.com" + suffix);
+    return QUrl("https://api4.thetvdb.com/v4" + suffix);
 }
 
 QUrl TheTvDbApi::makeFullAssetUrl(const QString& suffix)
 {
-    return QUrl("https://www.thetvdb.com" + suffix);
+    return QUrl("https://api4.thetvdb.com/v4" + suffix);
 }
 
 QUrl TheTvDbApi::getShowSearchUrl(const QString& searchStr) const
@@ -191,8 +202,9 @@ QUrl TheTvDbApi::getShowSearchUrl(const QString& searchStr) const
     }
 
     QUrlQuery queries;
-    queries.addQueryItem("name", searchStr);
-    return TheTvDbApi::makeFullUrl("/search/series?" + queries.toString());
+    queries.addQueryItem("q", searchStr);
+    queries.addQueryItem("type", "series");
+    return TheTvDbApi::makeFullUrl("/search?" + queries.toString());
 }
 
 QUrl TheTvDbApi::getShowUrl(ApiShowDetails type, const TvDbId& id) const
@@ -206,7 +218,7 @@ QUrl TheTvDbApi::getShowUrl(ApiShowDetails type, const TvDbId& id) const
         return QString{};
     }();
 
-    return TheTvDbApi::makeFullUrl(QStringLiteral("/series/%1%2").arg(id.toString(), typeStr));
+    return TheTvDbApi::makeFullUrl("/series/" + id.toString() + "/extended");
 }
 
 QUrl TheTvDbApi::getImagesUrl(ShowScraperInfo type, const TvDbId& id) const
