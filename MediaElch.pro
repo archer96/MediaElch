@@ -115,6 +115,7 @@ SOURCES += src/main.cpp \
     src/data/RatingModel.cpp \
     src/export/CsvExport.cpp \
     src/data/ActorModel.cpp \
+    src/file/Filesystem.cpp \
     src/globals/Containers.cpp \
     src/globals/Random.cpp \
     src/music/AllMusicId.cpp \
@@ -450,6 +451,7 @@ HEADERS  += Version.h \
     src/data/RatingModel.h \
     src/export/CsvExport.h \
     src/data/ActorModel.h \
+    src/file/Filesystem.h \
     src/globals/Containers.h \
     src/globals/Random.h \
     src/music/AllMusicId.h \
